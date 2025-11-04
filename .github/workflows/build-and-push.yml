@@ -28,15 +28,15 @@ jobs:
       - name: Show working directory and files
         run: |
           echo "Current working directory: $(pwd)"
-          echo "Repository contents:"
-          ls -R .
+          echo "Repository contents (recursive):"
+          ls -R $GITHUB_WORKSPACE
 
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: 661539128717.dkr.ecr.us-east-1.amazonaws.com
           IMAGE_NAME: os-hardened-base
         run: |
-          echo "Building Dockerfile from $(pwd)"
+          echo "🔧 Building image using Dockerfile at $GITHUB_WORKSPACE/Dockerfile"
           docker build -t $ECR_REGISTRY/$IMAGE_NAME:latest -f $GITHUB_WORKSPACE/Dockerfile $GITHUB_WORKSPACE
           docker push $ECR_REGISTRY/$IMAGE_NAME:latest
 
