@@ -1,0 +1,72 @@
+name: 🌍 Terraform Infrastructure Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write      # Required for OIDC
+  contents: read       # Required to checkout repo
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.8.5
+  TF_WORKING_DIR: infra/aws-infra-live   # change to "." if your Terraform code is at repo root
+  ROLE_TO_ASSUME: arn:aws:iam::661539128717:role/GitHubOIDC-ECRPushRole
+
+jobs:
+  terraform:
+    name: 🧱 Terraform Plan & Apply
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Configure AWS credentials (OIDC)
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Step 3: Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Step 4: Terraform Init
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      # Step 5: Terraform Validate
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Step 6: Terraform Plan
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -input=false -no-color -out=tfplan
+        continue-on-error: true
+
+      # Step 7: Upload Plan Output for review
+      - name: Upload Plan Output
+        if: failure() || success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+
+      # Step 8: Terraform Apply (only on main branch)
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -input=false -auto-approve tfplan

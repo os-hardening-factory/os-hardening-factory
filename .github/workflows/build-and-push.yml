@@ -1,7 +1,15 @@
-name: Build and Push Hardened Image
+name: 🧱 Build & Push Hardened Image to AWS ECR
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_NAME: os-hardened-base
+  ECR_REGISTRY: 661539128717.dkr.ecr.us-east-1.amazonaws.com
+  BUCKET_NAME: cloud-secure-infra-os-hardening-metadata
 
 permissions:
   id-token: write
@@ -9,36 +17,63 @@ permissions:
 
 jobs:
   build-and-push:
+    name: 🔨 Build & Push Hardened Image
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # Checkout repo
+      - name: 🧩 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
+      # Configure AWS credentials via OIDC (no static keys)
+      - name: 🔐 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubOIDC-ECRPushRole
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
 
-      - name: Authenticate to Amazon ECR
+      # Login to Amazon ECR
+      - name: 🔑 Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Debug workspace
+      # Build and tag Docker image
+      - name: 🏗️ Build Docker image
         run: |
-          echo "Workspace path: $GITHUB_WORKSPACE"
-          echo "Listing all files recursively:"
-          ls -R $GITHUB_WORKSPACE
+          docker build -t $ECR_REGISTRY/$IMAGE_NAME:latest .
 
-      - name: Build, tag, and push image to Amazon ECR
-        env:
-          ECR_REGISTRY: 661539128717.dkr.ecr.us-east-1.amazonaws.com
-          IMAGE_NAME: os-hardened-base
+      # Push Docker image to ECR
+      - name: 🚀 Push image to Amazon ECR
         run: |
-          echo "Building image using Dockerfile from: $GITHUB_WORKSPACE/Dockerfile"
-          docker build -t $ECR_REGISTRY/$IMAGE_NAME:latest -f $GITHUB_WORKSPACE/Dockerfile $GITHUB_WORKSPACE
           docker push $ECR_REGISTRY/$IMAGE_NAME:latest
 
-      - name: Confirmation
-        run: echo "✅ Hardened base image built and pushed successfully!"
+      # Generate metadata JSON file
+      - name: 📦 Generate image metadata file
+        id: metadata
+        run: |
+          echo "{
+            \"project\": \"os-hardening-factory\",
+            \"repository\": \"${{ github.repository }}\",
+            \"image_name\": \"${{ env.IMAGE_NAME }}\",
+            \"image_tag\": \"latest\",
+            \"commit_sha\": \"${{ github.sha }}\",
+            \"pushed_by\": \"${{ github.actor }}\",
+            \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+            \"source\": \"GitHub Actions\",
+            \"compliance\": \"CIS-Benchmark\",
+            \"version\": \"v1.0.0\"
+          }" > image_metadata.json
+
+      # Upload metadata to S3
+      - name: ☁️ Upload metadata to S3
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BUCKET_NAME: ${{ env.BUCKET_NAME }}
+        run: |
+          aws s3 cp image_metadata.json s3://$BUCKET_NAME/metadata/${{ github.run_number }}.json
+
+      # Optional: Verify upload
+      - name: 🔍 Verify uploaded metadata file
+        run: |
+          aws s3 ls s3://$BUCKET_NAME/metadata/ --recursive | tail -n 5
