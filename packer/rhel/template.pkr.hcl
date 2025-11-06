@@ -31,3 +31,9 @@ build {
     tag        = "v1.0.0-cis1.4-20251106"
   }
 }
+
+# Declare variables here
+variable "local_tag" {
+  type        = string
+  description = "Tag for the hardened image version"
+}
