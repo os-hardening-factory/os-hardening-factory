@@ -35,12 +35,14 @@ build {
   provisioner "shell" {
     inline = [
       "echo '🧩 Preparing container for Ansible provisioning...'",
-      "if command -v dnf >/dev/null 2>&1; then sudo dnf install -y python3 python3-pip; else sudo yum install -y python3 python3-pip; fi",
+      # Install Python and pip directly as root
+      "if command -v dnf >/dev/null 2>&1; then dnf install -y python3 python3-pip; else yum install -y python3 python3-pip; fi",
       "pip3 install ansible",
       "ansible --version || echo '⚠️ Ansible installation failed!'",
       "echo '✅ System prepared for hardening execution.'"
     ]
   }
+
 
   # 2️⃣ Run the Ansible playbook from inside the container
   provisioner "ansible-local" {
