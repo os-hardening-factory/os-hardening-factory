@@ -1,28 +1,30 @@
 ---
 # roles/cis/handlers/main.yml
 
-- name: Restart SSH
+# Detect environment (shared variable for conditional restarts)
+- name: Detect if running inside a container
+  ansible.builtin.command: cat /proc/1/comm
+  register: init_process
+  changed_when: false
+  failed_when: false
   listen: Restart SSH
-  block:
-    - name: Detect if running inside a container
-      ansible.builtin.command: cat /proc/1/comm
-      register: init_process
-      changed_when: false
-      failed_when: false
 
-    - name: Restart sshd using systemd if available
-      ansible.builtin.systemd:
-        name: sshd
-        state: restarted
-      when: init_process.stdout == "systemd"
-      become: true
+# Restart sshd via systemd if systemd is available
+- name: Restart sshd using systemd if available
+  ansible.builtin.systemd:
+    name: sshd
+    state: restarted
+  when: init_process.stdout == "systemd"
+  become: true
+  listen: Restart SSH
 
-    - name: Restart sshd manually when systemd is not available
-      ansible.builtin.shell: |
-        if command -v sshd >/dev/null 2>&1; then
-          pkill -HUP sshd || true
-          sshd -t && sshd
-        fi
-      when: init_process.stdout != "systemd"
-      become: true
-
+# Restart sshd manually when systemd is not available
+- name: Restart sshd manually when systemd is not available
+  ansible.builtin.shell: |
+    if command -v sshd >/dev/null 2>&1; then
+      pkill -HUP sshd || true
+      sshd -t && sshd
+    fi
+  when: init_process.stdout != "systemd"
+  become: true
+  listen: Restart SSH
