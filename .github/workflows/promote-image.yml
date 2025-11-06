@@ -41,6 +41,13 @@ jobs:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: 🧾 Checkout os-hardening-orchestrator repository
+        uses: actions/checkout@v4
+        with:
+          repository: os-hardening-factory/os-hardening-orchestrator
+          fetch-depth: 0  # ensures full git history & .git folder
+
+
       - name: 🧾 Log input parameters
         run: |
           echo "Vendor        : ${{ github.event.inputs.vendor }}"
@@ -120,19 +127,28 @@ jobs:
           echo "ECR_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
           echo "SUMMARY=${SUMMARY}" >> $GITHUB_ENV
 
-      # ---------- Step 5: Dispatch release creation ----------
       - name: 🚀 Dispatch release to vendor repo
         if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
+          echo "📂 Current working directory: $(pwd)"
+          echo "🔍 Verifying tools directory..."
+          ls -R tools || (echo "❌ tools directory not found!" && exit 1)
+
+          # Move to correct workspace (ensures relative paths work)
+          cd $GITHUB_WORKSPACE
+
+          echo "🧠 Running release dispatch script..."
           python3 tools/dispatch_to_vendor_repos.py \
             --vendor "${{ github.event.inputs.vendor }}" \
             --cis_profile "${{ github.event.inputs.cis_profile }}" \
             --version "${{ github.event.inputs.version }}" \
             --build_date "${{ env.DATE }}" \
             --summary "${{ env.SUMMARY }}"
-          echo "✅ Release created in vendor repo"
+
+          echo "✅ Release successfully created in vendor repo"
+
 
       # ---------- Step 6: Attach Trivy report to GitHub release ----------
       - name: 📎 Attach Trivy report to vendor release
