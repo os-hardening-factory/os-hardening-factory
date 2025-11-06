@@ -64,6 +64,7 @@ jobs:
             -var "base_image=ubuntu:${{ env.OS_VERSION }}" \
             -var "cis_profile=cis${{ env.CIS_VERSION }}" \
             -var "build_date=${DATE}" \
+            -var "build_time=${TIME}" \
             -var "git_commit=${COMMIT}" \
             -var "enterprise_tag=${{ env.ENTERPRISE_TAG }}" \
             -var "source_ami=${SOURCE_AMI}" \
@@ -74,17 +75,16 @@ jobs:
           echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
           echo "BASE_TAG=${BASE_TAG}" >> $GITHUB_ENV
 
-      # 7️⃣ Tag and push to ECR
-      - name: 🧱 Tag and push hardened image to ECR
+      - name: 🧱 Tag and push hardened image to ECR (immutable with datetime)
         run: |
-          DATE=${{ env.DATE }}
+          # Generate timestamped version tag
+          DATE=$(date +%Y%m%d)
+          TIME=$(date +%H%M%S)
           COMMIT=${{ env.COMMIT }}
           BASE_TAG=${{ env.BASE_TAG }}
-          FULL_TAG="${BASE_TAG}-${DATE}-${COMMIT}"
-          LATEST_TAG="${BASE_TAG}-latest"
+          FULL_TAG="${BASE_TAG}-${DATE}${TIME}-${COMMIT}"
 
-          echo "🔹 Full tag: ${FULL_TAG}"
-          echo "🔹 Latest tag: ${LATEST_TAG}"
+          echo "🔹 Generated immutable tag: ${FULL_TAG}"
 
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
             | docker login --username AWS \
@@ -93,14 +93,11 @@ jobs:
           docker tag ${BASE_TAG}-hardening-${DATE}:latest \
             ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
 
-          docker tag ${BASE_TAG}-hardening-${DATE}:latest \
-            ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${LATEST_TAG}
-
           docker push ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
-          docker push ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${LATEST_TAG}
 
           echo "FULL_TAG=${FULL_TAG}" >> $GITHUB_ENV
-          echo "✅ Image pushed successfully to ECR"
+          echo "✅ Image pushed successfully with timestamped immutable tag"
+
 
       # 8️⃣ Generate enterprise tag (vendor-version-intuit-iteration)
       - name: 🏷️ Generate enterprise tag
