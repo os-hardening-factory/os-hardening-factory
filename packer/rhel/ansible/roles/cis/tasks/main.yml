@@ -1,46 +1,43 @@
 ---
-# 🧩 Minimal RHEL CIS Baseline
+# 🧩 Basic RHEL CIS 1.5 Hardening Tasks
 
-- name: Ensure system is up-to-date
+- name: Ensure system is updated
   yum:
     name: '*'
     state: latest
-  register: update_status
+  register: yum_update
   ignore_errors: true
 
-- name: Display system update results
+- name: Display update summary
   debug:
-    var: update_status
+    var: yum_update
 
-- name: Ensure core security packages are installed
+- name: Ensure required security packages are installed
   yum:
     name:
-      - vim
+      - sudo
       - curl
       - wget
-      - net-tools
-      - sudo
+      - vim
       - firewalld
-      - audit
       - rsyslog
+      - audit
     state: present
 
-- name: Enable and start auditd
+- name: Enable and start essential services
   service:
-    name: auditd
+    name: "{{ item }}"
     state: started
     enabled: true
+  loop:
+    - firewalld
+    - rsyslog
+    - auditd
 
-- name: Enable and start rsyslog
-  service:
-    name: rsyslog
-    state: started
-    enabled: true
-
-- name: Set system timezone to UTC
+- name: Set timezone to UTC
   command: timedatectl set-timezone UTC
 
-- name: Disable root SSH login
+- name: Disable SSH root login
   lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^#?PermitRootLogin'
@@ -48,20 +45,13 @@
     create: yes
   notify: Restart SSH
 
-- name: Ensure password complexity policy is enforced
+- name: Enforce password policy
   lineinfile:
     path: /etc/security/pwquality.conf
     regexp: '^#?minlen'
     line: 'minlen = 12'
     create: yes
 
-- name: Ensure firewall is active
-  service:
-    name: firewalld
-    state: started
-    enabled: true
-
-# Handlers
 handlers:
   - name: Restart SSH
     service:

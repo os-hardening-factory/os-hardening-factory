@@ -1,6 +1,7 @@
 ---
-- name: Apply RHEL CIS 1.5 baseline hardening
+- name: Apply RHEL CIS 1.5 Hardening Baseline
   hosts: all
   become: true
+  gather_facts: yes
   roles:
     - cis
