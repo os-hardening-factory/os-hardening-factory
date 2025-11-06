@@ -1,4 +1,3 @@
-# Variables for RHEL Hardened Image (UBI Base)
 variable "image_name" {
   type    = string
   default = "rhel-ubi-hardened"
@@ -16,5 +15,5 @@ variable "local_tag" {
 
 variable "ansible_playbook" {
   type    = string
-  default = "../../playbooks/rhel-hardening.yml"
+  default = "ansible/playbook.yml"
 }
