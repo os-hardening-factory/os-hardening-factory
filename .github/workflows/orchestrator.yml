@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       vendor:
-        description: "amazonlinux | ubuntu | rhel | all"
+        description: "Choose target vendor (amazonlinux | ubuntu | rhel | all)"
         required: true
         default: "all"
 
+# Prevents parallel runs from colliding
 concurrency:
   group: "controller-${{ github.ref }}"
   cancel-in-progress: false
 
-# The reusable workflows do the heavy lifting; we keep this minimal.
 permissions:
   contents: read
 
@@ -25,12 +25,12 @@ jobs:
       matrix:
         vendor: [ubuntu, amazonlinux, rhel]
     steps:
-      - name: ▶️ Call vendor workflow - ${{ matrix.vendor }}
+      - name: ▶️ Trigger vendor workflow - ${{ matrix.vendor }}
         uses: ./.github/workflows/build-${{ matrix.vendor }}.yml
 
   build-one:
     if: ${{ github.event.inputs.vendor != 'all' }}
     runs-on: ubuntu-latest
     steps:
-      - name: ▶️ Call vendor workflow - ${{ github.event.inputs.vendor }}
+      - name: ▶️ Trigger vendor workflow - ${{ github.event.inputs.vendor }}
         uses: ./.github/workflows/build-${{ github.event.inputs.vendor }}.yml
