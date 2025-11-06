@@ -1,17 +1,17 @@
-variable "base_image" {
+# ---------------------------------------------------------------------------
+# 🧩 Variables for RHEL CIS Hardening
+# ---------------------------------------------------------------------------
+
+# CIS Benchmark version used for compliance
+variable "cis_version" {
   type        = string
-  description = "Base image to use for building the RHEL hardened image"
-  default     = "redhat/ubi9:latest"
+  description = "CIS benchmark version for this hardening build"
+  default     = "1.5"
 }
 
-variable "image_name" {
+# Simple timestamp using shell injection from workflow
+variable "timestamp" {
   type        = string
-  description = "Name of the final hardened image"
-  default     = "rhel-9-cis1.5-hardening"
-}
-
-variable "ansible_playbook" {
-  type        = string
-  description = "Path to the Ansible playbook"
-  default     = "ansible/playbook.yml"
+  description = "Timestamp for image tagging (passed from workflow)"
+  default     = "20251106"
 }
