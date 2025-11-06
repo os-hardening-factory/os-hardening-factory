@@ -1,3 +1,7 @@
+# ---------------------------------------------------------------------------
+# RHEL 9 UBI – CIS 1.5 Hardening Template
+# ---------------------------------------------------------------------------
+
 packer {
   required_version = ">= 1.11.0"
 
@@ -14,44 +18,42 @@ packer {
 }
 
 # ---------------------------------------------------------------------------
-# Docker source definition
+# Docker Source – RHEL UBI Base
 # ---------------------------------------------------------------------------
 source "docker" "rhel" {
   image  = var.base_image
   commit = true
   changes = [
     "LABEL os-hardening=true",
-    "ENV LANG=en_US.UTF-8",
-    "ENV TZ=UTC"
+    "ENV container docker",
+    "ENV ANSIBLE_FORCE_COLOR=1"
   ]
 }
 
 # ---------------------------------------------------------------------------
-# Build definition
+# Build Definition
 # ---------------------------------------------------------------------------
 build {
   name    = var.image_name
   sources = ["source.docker.rhel"]
 
   # -------------------------------------------------------------------------
-  # Step 1 – Install dependencies and Ansible via pip
+  # Step 1 – Install dependencies and Ansible inside container
   # -------------------------------------------------------------------------
   provisioner "shell" {
     inline = [
       "set -eux",
-      "export TZ=UTC",
-      "dnf update -y || true",
-      "dnf install -y python3-pip python3 git openssh-clients sudo tzdata",
-      "pip3 install --no-cache-dir ansible",
-      "ln -sf /usr/share/zoneinfo/UTC /etc/localtime",
-      "echo 'UTC' > /etc/timezone",
-      "ansible --version || echo '✅ Ansible installed successfully'",
-      "dnf clean all"
+      "echo '📦 Installing system dependencies for CIS hardening...'",
+      "microdnf install -y python3 python3-pip git sudo ansible-core",
+      "pip3 install --no-cache-dir ansible==8.7.0",
+      "ansible --version",
+      "microdnf clean all",
+      "echo '✅ Dependencies installed successfully.'"
     ]
   }
 
   # -------------------------------------------------------------------------
-  # Step 2 – Run CIS baseline Ansible playbook
+  # Step 2 – Run CIS hardening Ansible playbook
   # -------------------------------------------------------------------------
   provisioner "ansible-local" {
     playbook_file   = var.ansible_playbook
@@ -61,9 +63,22 @@ build {
   }
 
   # -------------------------------------------------------------------------
-  # Step 3 – Tag final hardened image
+  # Step 3 – Cleanup temporary files and package cache
+  # -------------------------------------------------------------------------
+  provisioner "shell" {
+    inline = [
+      "set -eux",
+      "echo '🧹 Cleaning up cache and temporary data...'",
+      "rm -rf /tmp/* /var/cache/dnf /var/cache/yum",
+      "echo '✅ Cleanup complete.'"
+    ]
+  }
+
+  # -------------------------------------------------------------------------
+  # Step 4 – Tag final image after hardening
   # -------------------------------------------------------------------------
   post-processor "docker-tag" {
     repository = var.image_name
+    tags       = ["latest"]
   }
 }
