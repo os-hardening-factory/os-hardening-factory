@@ -31,7 +31,7 @@ jobs:
       contents: write
 
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: ap-south-1
       ACCOUNT_ID: "661539128717"
       KMS_KEY_ARN: "arn:aws:kms:us-east-1:661539128717:key/e353a400-0c9a-42b4-95b4-d955d8f64fc3"
 
