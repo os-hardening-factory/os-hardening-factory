@@ -1,4 +1,4 @@
-name: 🚀 Promote Hardened Image to Stable
+name: 🚀 Promote Hardened Image to Prod (with Security Gating)
 
 on:
   workflow_dispatch:
@@ -11,8 +11,9 @@ on:
         description: "Existing tag to promote (e.g., ubuntu-22.04-intuit-1)"
         required: true
       target_tag:
-        description: "New promotion tag (e.g., ubuntu-22.04-intuit-stable)"
+        description: "New promotion tag (e.g., ubuntu-22.04-intuit-prod)"
         required: true
+        default: "ubuntu-22.04-intuit-prod"
 
 jobs:
   promote:
@@ -38,15 +39,69 @@ jobs:
           echo "Source tag    : ${{ github.event.inputs.source_tag }}"
           echo "Target tag    : ${{ github.event.inputs.target_tag }}"
 
-      - name: 🧱 Pull, retag, and push image
+      # -------------------------------------------------------------------
+      #  Phase 2 – Step 2.1 : Automated Security Gating using Trivy
+      # -------------------------------------------------------------------
+      - name: 🔍 Install Trivy
+        run: |
+          echo "📦 Installing Trivy vulnerability scanner..."
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trivy --version
+          echo "✅ Trivy installed successfully."
+
+      - name: 🛡️ Security Gate (Trivy CVE check)
+        env:
+          VENDOR: ${{ github.event.inputs.vendor }}
+          SOURCE_TAG: ${{ github.event.inputs.source_tag }}
+          ACCOUNT_ID: ${{ env.ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BLOCK_SEVERITIES: "CRITICAL,HIGH"
+        run: |
+          set -euo pipefail
+          REPO="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hardened-${VENDOR}"
+          IMG="${REPO}:${SOURCE_TAG}"
+
+          echo "🔎 Scanning image for vulnerabilities: ${IMG}"
+
+          # Authenticate & pull image
+          aws ecr get-login-password --region ${AWS_REGION} \
+            | docker login --username AWS --password-stdin ${REPO}
+          docker pull "${IMG}"
+
+          mkdir -p reports
+          echo "🧪 Running Trivy scan for severities: ${BLOCK_SEVERITIES}"
+          trivy image --timeout 5m \
+            --severity ${BLOCK_SEVERITIES} \
+            --format json \
+            --output "reports/trivy-${VENDOR}-${SOURCE_TAG}.json" \
+            "${IMG}" || true
+
+          # Parse Trivy output to count vulnerabilities
+          CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "reports/trivy-${VENDOR}-${SOURCE_TAG}.json")
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "reports/trivy-${VENDOR}-${SOURCE_TAG}.json")
+
+          echo "🔢 Vulnerability counts → CRITICAL=${CRIT}, HIGH=${HIGH}"
+          if [ "${CRIT}" -gt 0 ] || [ "${HIGH}" -gt 0 ]; then
+            echo "❌ Security gate failed: Found CRITICAL/HIGH vulnerabilities."
+            echo "🧾 Detailed report saved to reports/trivy-${VENDOR}-${SOURCE_TAG}.json"
+            exit 1
+          fi
+
+          echo "✅ Security gate passed: No CRITICAL/HIGH vulnerabilities found."
+
+      # -------------------------------------------------------------------
+      #  Step 2.1 (continued): Promote image only if gate passes
+      # -------------------------------------------------------------------
+      - name: 🧱 Pull, retag, and push image (Prod)
+        if: success() # runs only if Trivy gate passed
         run: |
           VENDOR=${{ github.event.inputs.vendor }}
           SRC=${{ github.event.inputs.source_tag }}
           DST=${{ github.event.inputs.target_tag }}
-
           REPO="${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${VENDOR}"
 
-          echo "🔹 Pulling image: ${REPO}:${SRC}"
+          echo "🔹 Promoting ${REPO}:${SRC} → ${REPO}:${DST}"
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${REPO}
 
@@ -54,9 +109,21 @@ jobs:
           docker tag  ${REPO}:${SRC} ${REPO}:${DST}
           docker push ${REPO}:${DST}
 
-          echo "✅ Promoted ${REPO}:${SRC} → ${REPO}:${DST}"
+          echo "✅ Promotion complete: ${REPO}:${DST}"
+
+      # -------------------------------------------------------------------
+      #  Step 2.1 (continued): Always upload scan report
+      # -------------------------------------------------------------------
+      - name: 📊 Upload Trivy report (for audit)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ github.event.inputs.vendor }}-${{ github.event.inputs.source_tag }}
+          path: reports/
+          retention-days: 30
 
       - name: 🧾 Record promotion details
+        if: success()
         run: |
           echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
           echo "Promoted image details:"
