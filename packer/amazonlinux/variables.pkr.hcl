@@ -1,18 +1,16 @@
 variable "image_name" {
-  type    = string
-  default = "amazonlinux-hardened"
+  type        = string
+  description = "Final name of the hardened Amazon Linux image"
 }
 
 variable "base_image" {
-  type    = string
-  default = "amazonlinux:2023"
+  type        = string
+  default     = "amazonlinux:2"
+  description = "Amazon Linux base image"
 }
 
-  type    = string
-  default = "latest"
-}
-
-variable "ansible_playbook" {
-  type    = string
-  default = "ansible/playbook.yml"
+variable "cis_version" {
+  type        = string
+  default     = "1.3"
+  description = "CIS Benchmark version for Amazon Linux 2"
 }

@@ -1,6 +1,9 @@
 ---
-- name: Harden amazonlinux
-  hosts: all
+- name: CIS Hardening for Amazon Linux 2
+  hosts: localhost
   become: yes
+
   roles:
-    - cis_baseline
+    - role: common
+    - role: cis_baseline
+    - role: cis

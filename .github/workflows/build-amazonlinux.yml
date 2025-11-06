@@ -1,4 +1,4 @@
-name: 🟢 Amazon Linux Hardened Image Build
+name: 🟩 Amazon Linux 2 CIS Hardening Build
 
 on:
   workflow_dispatch:
@@ -21,54 +21,30 @@ jobs:
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🔐 Configure AWS credentials
+      - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: 🔧 Install dependencies (no containerd conflicts)
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget curl unzip python3-pip gpg software-properties-common
-          pip3 install boto3 PyGithub
-
-      - name: 📦 Install Packer
+      - name: 📦 Install Packer (binary)
         run: |
           curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o packer.zip
           sudo unzip -o packer.zip -d /usr/local/bin/
           rm -f packer.zip
           packer version
 
-      - name: 🧩 Install required Packer plugins
-        run: |
-          packer plugins install github.com/hashicorp/docker
-          packer plugins install github.com/hashicorp/ansible
-
-      - name: 🧩 Validate Packer configuration
+      - name: 🧩 Initialize and validate Packer template
         run: |
           packer init packer/amazonlinux
-          packer validate packer/amazonlinux
+          packer validate -var "image_name=${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)" packer/amazonlinux
 
-      - name: 🏗️ Build hardened Amazon Linux image
+      - name: 🏗️ Build Amazon Linux CIS image
         run: |
-          TIMESTAMP=$(date +%Y%m%d)
-          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
-          echo "🚀 Building hardened image: $TAG"
-          packer build \
-            -var "image_name=${TAG}" \
-            -var "base_image=amazonlinux:2" \
-            packer/amazonlinux
+          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)"
+          packer build -var "image_name=${TAG}" packer/amazonlinux
 
-      - name: 🔍 Scan image using Trivy
+      - name: 🔍 Trivy Scan
         run: |
-          TIMESTAMP=$(date +%Y%m%d)
-          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
           mkdir -p reports
-          trivy image "${TAG}:latest" -f json -o reports/trivy-${TAG}.json || true
-
-      - name: 📤 Upload reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-${{ env.OS_NAME }}-report
-          path: reports/
+          trivy image "${{ env.OS_NAME }}-${{ env.OS_VERSION }}:latest" -f json -o reports/trivy-${{ env.OS_NAME }}.json || true

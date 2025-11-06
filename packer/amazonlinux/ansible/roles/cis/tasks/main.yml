@@ -1,0 +1,26 @@
+---
+- name: Ensure system packages are up-to-date
+  ansible.builtin.dnf:
+    name: "*"
+    state: present
+  register: cis_update_result
+  until: cis_update_result is succeeded
+  retries: 3
+  delay: 10
+
+- name: Enforce password complexity
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/system-auth
+    regexp: '^password\s+requisite'
+    line: 'password    requisite     pam_pwquality.so try_first_pass retry=3 minlen=12'
+    mode: '0600'
+    create: true
+
+- name: Disable root SSH login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    mode: '0600'
+    create: true
+  notify: Restart SSH

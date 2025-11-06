@@ -1,4 +1,0 @@
----
-- name: Example CIS hardening for amazonlinux
-  debug:
-    msg: "Applying CIS benchmark controls on amazonlinux"
