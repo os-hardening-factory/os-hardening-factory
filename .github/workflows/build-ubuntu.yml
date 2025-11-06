@@ -15,86 +15,84 @@ jobs:
       OS_VERSION: "22.04"
       CIS_VERSION: "1.4"
       AWS_REGION: "ap-south-1"
+      ACCOUNT_ID: "661539128717"
       PACKER_VERSION: "1.14.2"
 
     steps:
+      # 1️⃣ Checkout Code
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Configure AWS credentials (OIDC)
       - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
+          role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: 🧠 Inspect preinstalled Docker/containerd
+      # 3️⃣ Base dependencies
+      - name: 🔧 Install dependencies
         run: |
-          echo "=== Checking preinstalled container runtimes ==="
-          dpkg -l | grep -E "docker|containerd" || echo "No preinstalled container packages found"
-          echo "Holding all container runtime packages to prevent conflicts..."
-          sudo apt-mark hold docker-ce docker-ce-cli containerd.io containerd || true
-
-      - name: 🔧 Install base dependencies (minimal + safe)
-        run: |
-          echo "🔧 Installing required base dependencies..."
           sudo apt-get update -y
-          sudo apt-get install -y wget curl unzip python3-pip jq gpg lsb-release software-properties-common
-          echo "✅ Base dependencies installed."
+          sudo apt-get install -y wget curl unzip jq python3-pip
 
-      - name: 📦 Install Packer via binary (no APT)
+      # 4️⃣ Install packer
+      - name: 📦 Install Packer
         run: |
-          echo "📦 Installing HashiCorp Packer v${PACKER_VERSION} (binary)..."
           curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o packer.zip
           sudo unzip -o packer.zip -d /usr/local/bin/
           rm -f packer.zip
           packer version
-          echo "✅ Packer installed successfully without APT."
 
-      - name: 🧩 Install required Packer plugins
-        run: |
-          echo "🧩 Installing Packer plugins..."
-          packer plugins install github.com/hashicorp/docker
-          packer plugins install github.com/hashicorp/ansible
-          echo "✅ Plugins installed successfully."
-
-      - name: 🔍 Install Trivy scanner
-        run: |
-          echo "🔍 Installing Trivy..."
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp
-          sudo mv /tmp/trivy /usr/local/bin/trivy
-          trivy --version
-          echo "✅ Trivy installed successfully."
-
+      # 5️⃣ Initialize and validate packer
       - name: 🧩 Initialize and validate Packer
         run: |
-          echo "🧩 Initializing and validating Packer..."
           packer init packer/ubuntu
           packer validate packer/ubuntu
-          echo "✅ Packer templates validated successfully."
 
+      # 6️⃣ Build hardened Ubuntu image
       - name: 🏗️ Build hardened Ubuntu image
         run: |
-          TIMESTAMP=$(date +%Y%m%d)
-          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
-          echo "🚀 Building hardened image: $TAG"
+          DATE=$(date +%Y%m%d)
+          COMMIT=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          BASE_TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}"
+          IMAGE_NAME="${BASE_TAG}-hardening-${DATE}"
+
+          echo "🚀 Building image: ${IMAGE_NAME}"
           packer build \
-            -var "image_name=${TAG}" \
-            -var "base_image=ubuntu:22.04" \
+            -var "image_name=${IMAGE_NAME}" \
+            -var "base_image=ubuntu:${{ env.OS_VERSION }}" \
+            -var "cis_profile=cis${{ env.CIS_VERSION }}" \
             packer/ubuntu
-          echo "✅ Image build complete: ${TAG}:latest"
 
-      - name: 🔍 Scan image using Trivy
+          echo "DATE=${DATE}" >> $GITHUB_ENV
+          echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
+          echo "BASE_TAG=${BASE_TAG}" >> $GITHUB_ENV
+
+      # 7️⃣ Tag and push to ECR
+      - name: 🧱 Tag and push hardened image to ECR
         run: |
-          TIMESTAMP=$(date +%Y%m%d)
-          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
-          mkdir -p reports
-          trivy image "${TAG}:latest" --format json -o reports/trivy-${TAG}.json --severity HIGH,CRITICAL || true
-          echo "✅ Trivy scan complete."
+          DATE=${{ env.DATE }}
+          COMMIT=${{ env.COMMIT }}
+          BASE_TAG=${{ env.BASE_TAG }}
+          FULL_TAG="${BASE_TAG}-${DATE}-${COMMIT}"
+          LATEST_TAG="${BASE_TAG}-latest"
 
-      - name: 📊 Upload scan reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-security-reports
-          path: reports/
-          retention-days: 30
+          echo "🔹 Full tag: ${FULL_TAG}"
+          echo "🔹 Latest tag: ${LATEST_TAG}"
+
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS \
+              --password-stdin ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+          docker tag ${BASE_TAG}-hardening-${DATE}:latest \
+            ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
+
+          docker tag ${BASE_TAG}-hardening-${DATE}:latest \
+            ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${LATEST_TAG}
+
+          docker push ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
+          docker push ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${LATEST_TAG}
+
+          echo "FULL_TAG=${FULL_TAG}" >> $GITHUB_ENV
+          echo "✅ Image pushed successfully to ECR"
