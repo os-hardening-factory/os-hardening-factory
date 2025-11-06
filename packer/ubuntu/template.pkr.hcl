@@ -18,10 +18,23 @@ source "docker" "ubuntu" {
   image  = var.base_image
   commit = true
   changes = [
-    "LABEL os-hardening=true",
+    "LABEL maintainer='CloudOps Team'",
+    "LABEL os='ubuntu'",
+    "LABEL os_version='${var.ubuntu_version}'",
+    "LABEL cis_profile='${var.cis_profile}'",
+    "LABEL build_date='${var.build_date}'",
+    "LABEL git_commit='${var.git_commit}'",
+    "LABEL base_image='${var.base_image}'",
+    "LABEL source_ami='${var.source_ami}'",
+    "LABEL enterprise_tag='${var.enterprise_tag}'",
+    "LABEL description='${var.description}'",
+    "LABEL tag_format='{vendor}-{version}-intuit-{iteration}'",
+    "LABEL builder='github-actions'",
     "ENV DEBIAN_FRONTEND=noninteractive"
   ]
 }
+
+
 
 # Build
 build {

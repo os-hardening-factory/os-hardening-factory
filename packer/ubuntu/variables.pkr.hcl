@@ -43,3 +43,21 @@ variable "cis_profile" {
   default = "cis1.0"
   description = "CIS hardening profile applied to this build."
 }
+
+variable "enterprise_tag" {
+  type        = string
+  default     = "none"
+  description = "Enterprise-level tag such as eks-1.32-intuit-1"
+}
+
+variable "description" {
+  type        = string
+  default     = "no description provided"
+  description = "Human-readable build description (e.g., eks-1.32-intuit-1 built using source AMI ami-xxxxx)."
+}
+
+variable "source_ami" {
+  type        = string
+  default     = "ami-UNKNOWN"
+  description = "Source AMI or base image used to create this hardened image."
+}

@@ -57,12 +57,17 @@ jobs:
           COMMIT=$(echo "${GITHUB_SHA}" | cut -c1-7)
           BASE_TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}"
           IMAGE_NAME="${BASE_TAG}-hardening-${DATE}"
-
-          echo "🚀 Building image: ${IMAGE_NAME}"
+          echo "Building image: ${IMAGE_NAME}"
+          SOURCE_AMI="ami-05a8df10b57fXXXX"
           packer build \
             -var "image_name=${IMAGE_NAME}" \
             -var "base_image=ubuntu:${{ env.OS_VERSION }}" \
             -var "cis_profile=cis${{ env.CIS_VERSION }}" \
+            -var "build_date=${DATE}" \
+            -var "git_commit=${COMMIT}" \
+            -var "enterprise_tag=${{ env.ENTERPRISE_TAG }}" \
+            -var "source_ami=${SOURCE_AMI}" \
+            -var "description=${{ env.ENTERPRISE_TAG }} built using source AMI ${SOURCE_AMI}" \
             packer/ubuntu
 
           echo "DATE=${DATE}" >> $GITHUB_ENV
@@ -96,3 +101,28 @@ jobs:
 
           echo "FULL_TAG=${FULL_TAG}" >> $GITHUB_ENV
           echo "✅ Image pushed successfully to ECR"
+
+      # 8️⃣ Generate enterprise tag (vendor-version-intuit-iteration)
+      - name: 🏷️ Generate enterprise tag
+        id: taggen
+        run: |
+          VENDOR="${{ env.OS_NAME }}"
+          VERSION="${{ env.OS_VERSION }}"
+          VARIANT="intuit"
+          ITERATION="1"
+          ENTERPRISE_TAG="${VENDOR}-${VERSION}-${VARIANT}-${ITERATION}"
+          echo "ENTERPRISE_TAG=${ENTERPRISE_TAG}" >> $GITHUB_ENV
+          echo "Enterprise tag generated: ${ENTERPRISE_TAG}"
+
+
+      # 9️⃣ Push enterprise-tagged image
+      - name: 🧱 Push enterprise-tagged image to ECR
+        env:
+          ACCOUNT_ID: "661539128717"
+        run: |
+          SRC="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${{ env.FULL_TAG }}"
+          DEST="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${{ env.ENTERPRISE_TAG }}"
+          docker pull "$SRC"
+          docker tag  "$SRC" "$DEST"
+          docker push "$DEST"
+          echo "✅ Pushed enterprise tag: ${DEST}"
