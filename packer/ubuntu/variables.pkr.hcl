@@ -1,3 +1,7 @@
+# ---------------------------------------------------------------------------
+# Ubuntu Variables (Enterprise Naming Standard)
+# ---------------------------------------------------------------------------
+
 variable "base_image" {
   description = "Base Docker image"
   type        = string
@@ -23,11 +27,13 @@ variable "cis_version" {
 }
 
 variable "timestamp" {
-  description = "Build timestamp in YYYYMMDD"
-  default     = "${formatdate("YYYYMMDD", timestamp())}"
+  description = "Build timestamp (override via CLI)"
+  type        = string
+  default     = "manual"
 }
 
 variable "image_name" {
   description = "Full enterprise image name"
-  default     = "${var.os_name}-${var.os_version}-cis${var.cis_version}-hardening-${var.timestamp}"
+  type        = string
+  default     = "ubuntu-22.04-cis1.4-hardening-manual"
 }
