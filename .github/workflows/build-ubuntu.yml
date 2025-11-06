@@ -15,113 +15,87 @@ jobs:
       OS_VERSION: "22.04"
       CIS_VERSION: "1.4"
       AWS_REGION: "ap-south-1"
+      PACKER_VERSION: "1.14.2"
 
     steps:
-      # ---------------------------------------------------------------------
-      # Step 1 - Checkout repository
-      # ---------------------------------------------------------------------
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------------------
-      # Step 2 - Configure AWS (OIDC)
-      # ---------------------------------------------------------------------
       - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ---------------------------------------------------------------------
-      # Step 3 - Install Dependencies (Safe Sequence)
-      # ---------------------------------------------------------------------
-      - name: 🔧 Install dependencies
+      - name: 🧠 Debug existing containerd packages
         run: |
-          echo "🔧 Installing dependencies (safe sequence)..."
+          echo "=== Installed container-related packages ==="
+          dpkg -l | grep -E "docker|containerd" || echo "No containerd/docker packages found"
+
+      - name: 🔧 Install dependencies (no containerd conflicts)
+        run: |
+          set -e
+          echo "🔧 Installing dependencies safely..."
+          sudo apt-mark hold docker-ce docker-ce-cli containerd.io containerd || true
           sudo apt-get update -y
-          sudo apt-get install -y wget curl unzip python3-pip software-properties-common gpg
+          sudo apt-get install -y wget curl unzip python3-pip gpg lsb-release jq software-properties-common
+          echo "✅ Base dependencies installed"
 
-          # Install HashiCorp repo & Packer
-          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update && sudo apt-get install -y packer
-          packer version
-
-          # Install Trivy securely
-          echo "📦 Installing Trivy..."
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy --version
-
-          # Python libraries
-          pip3 install boto3 PyGithub
-          echo "✅ All dependencies installed successfully."
-
-      # ---------------------------------------------------------------------
-      # Step 4 - Install required Packer plugins
-      # ---------------------------------------------------------------------
-      - name: 🧩 Install Packer plugins
+      - name: 📦 Install Packer (binary method - conflict-free)
         run: |
-          echo "🧩 Installing Packer plugins..."
+          echo "📦 Installing Packer ${PACKER_VERSION} via binary..."
+          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o packer.zip
+          sudo unzip -o packer.zip -d /usr/local/bin/
+          rm -f packer.zip
+          packer version
+          echo "✅ Packer installed successfully via binary"
+
+      - name: 🧩 Install required Packer plugins
+        run: |
+          echo "📦 Installing Packer plugins..."
           packer plugins install github.com/hashicorp/docker
           packer plugins install github.com/hashicorp/ansible
-          echo "✅ Packer plugins installed."
+          echo "✅ Plugins installed successfully"
 
-      # ---------------------------------------------------------------------
-      # Step 5 - Build Hardened Ubuntu Image
-      # ---------------------------------------------------------------------
+      - name: 🔍 Install Trivy scanner
+        run: |
+          echo "🔍 Installing Trivy..."
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp
+          sudo mv /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+          echo "✅ Trivy installed successfully"
+
+      - name: 🧩 Initialize and validate Packer
+        run: |
+          echo "🧩 Initializing Packer configuration..."
+          packer init packer/ubuntu
+          packer validate packer/ubuntu
+          echo "✅ Packer configuration is valid"
+
       - name: 🏗️ Build hardened Ubuntu image
         run: |
           TIMESTAMP=$(date +%Y%m%d)
           TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
           echo "🚀 Building hardened image: $TAG"
-          packer init packer/ubuntu
-          packer validate packer/ubuntu
           packer build \
             -var "local_tag=latest" \
             -var "image_name=${TAG}" \
             -var "base_image=ubuntu:22.04" \
             packer/ubuntu
-          echo "✅ Hardened image built successfully: ${TAG}:latest"
+          echo "✅ Image built successfully: ${TAG}:latest"
 
-      # ---------------------------------------------------------------------
-      # Step 6 - Security Scan (Trivy)
-      # ---------------------------------------------------------------------
       - name: 🔍 Scan image using Trivy
         run: |
           TIMESTAMP=$(date +%Y%m%d)
           TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
           mkdir -p reports
-          echo "🔍 Running Trivy scan on ${TAG}:latest..."
-          trivy image "${TAG}:latest" -f json -o reports/trivy-${TAG}.json --severity HIGH,CRITICAL || true
-          echo "✅ Security scan completed."
+          trivy image "${TAG}:latest" --format json -o reports/trivy-${TAG}.json --severity HIGH,CRITICAL || true
+          echo "✅ Security scan completed"
 
-      # ---------------------------------------------------------------------
-      # Step 7 - Upload Reports
-      # ---------------------------------------------------------------------
-      - name: 📤 Upload scan report
+      - name: 📊 Upload scan reports as artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-${{ env.OS_NAME }}-report
+          name: security-reports
           path: reports/
-
-      # ---------------------------------------------------------------------
-      # Step 8 - Upload to S3
-      # ---------------------------------------------------------------------
-      - name: ☁️ Upload compliance report to S3
-        run: python3 tools/upload_to_s3_and_trigger_glue.py
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-
-      # ---------------------------------------------------------------------
-      # Step 9 - Update Changelog
-      # ---------------------------------------------------------------------
-      - name: 🪶 Update changelog
-        run: |
-          python3 tools/dispatch_to_vendor_repos.py \
-            --vendor "${{ env.OS_NAME }}" \
-            --cis_profile "cis${{ env.CIS_VERSION }}" \
-            --version "v1.0.0" \
-            --build_date "$(date +%Y%m%d)" \
-            --summary "CIS ${{ env.CIS_VERSION }} compliance and security updates"
-        env:
-          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          retention-days: 30
