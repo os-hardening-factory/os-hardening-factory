@@ -1,4 +1,3 @@
-# Variables for Ubuntu Hardened Image
 variable "image_name" {
   type    = string
   default = "ubuntu-hardened"
