@@ -127,6 +127,12 @@ jobs:
           echo "ECR_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
           echo "SUMMARY=${SUMMARY}" >> $GITHUB_ENV
 
+      - name: 🐍 Install Python dependencies for GitHub release dispatch
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install PyGithub
+
+
       - name: 🚀 Dispatch release to vendor repo
         if: success()
         env:
