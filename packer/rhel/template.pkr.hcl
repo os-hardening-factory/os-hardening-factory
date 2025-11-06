@@ -49,9 +49,9 @@ build {
 
   # Run CIS hardening
   provisioner "ansible-local" {
-    playbook_file   = "ansible/playbook.yml"
-    playbook_dir    = "ansible"
-    role_paths      = ["ansible/roles"]
+    playbook_file = "packer/rhel/ansible/playbook.yml"
+    playbook_dir  = "packer/rhel/ansible"
+    role_paths    = ["packer/rhel/ansible/roles"]
     extra_arguments = ["-e", "ANSIBLE_HOST_KEY_CHECKING=False"]
   }
 
