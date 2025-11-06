@@ -1,0 +1,9 @@
+---
+- name: Ensure core utilities are installed
+  package:
+    name: [bash, vim, curl, wget, net-tools]
+    state: present
+
+- name: Set system timezone to UTC
+  command: timedatectl set-timezone UTC
+  when: ansible_facts['os_family'] == 'RedHat'

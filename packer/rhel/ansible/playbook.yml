@@ -1,6 +1,6 @@
 ---
-- name: Harden rhel
+- name: Apply basic CIS hardening
   hosts: all
-  become: yes
+  become: true
   roles:
-    - cis_baseline
+    - common
