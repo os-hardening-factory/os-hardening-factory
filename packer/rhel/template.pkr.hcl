@@ -36,11 +36,14 @@ build {
   # -------------------------------------------------------------------------
   provisioner "shell" {
     inline = [
-      "microdnf install -y python3 git sudo tar",
-      "pip3 install ansible",
-      "ansible --version || echo '✅ Ansible installed successfully'"
+      "if command -v dnf >/dev/null 2>&1; then PKG_MGR=dnf; elif command -v microdnf >/dev/null 2>&1; then PKG_MGR=microdnf; else echo '❌ No supported package manager found' && exit 1; fi",
+      "echo '📦 Using package manager:' $PKG_MGR",
+      "sudo $PKG_MGR -y update || true",
+      "sudo $PKG_MGR -y install python3 git openssh-clients sudo tzdata ansible",
+      "sudo $PKG_MGR clean all"
     ]
   }
+
 
   # -------------------------------------------------------------------------
   # Step 2: Copy Ansible playbook and roles into container
