@@ -1,6 +1,11 @@
 ---
-- name: Restart SSH
+- name: Restart SSH if available
   ansible.builtin.service:
     name: sshd
     state: restarted
-
+    enabled: true
+  register: ssh_restart_result
+  failed_when: false
+  changed_when: ssh_restart_result.changed | default(false)
+  ignore_errors: true
+  when: ansible_facts.services is defined and ('sshd.service' in ansible_facts.services or 'sshd' in ansible_facts.services)
