@@ -88,20 +88,41 @@
 # 4. Service Hardening
 # ============================================================
 
-- name: Disable unnecessary services
-  ansible.builtin.systemd:
-    name: "{{ item }}"
-    enabled: false
-    state: stopped
-  loop:
-    - avahi-daemon
-    - cups
-    - nfs
-    - rpcbind
-  ignore_errors: true
+- name: Disable unnecessary services safely (works with or without systemd)
+  block:
+    - name: Detect if running inside a container
+      ansible.builtin.command: cat /proc/1/comm
+      register: init_process
+      changed_when: false
+      failed_when: false
+
+    - name: Stop and disable services if systemd is available
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop:
+        - avahi-daemon
+        - cups
+        - nfs
+        - rpcbind
+      when: init_process.stdout == "systemd"
+
+    - name: Remove unnecessary service packages when running inside container
+      ansible.builtin.dnf:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - avahi-daemon
+        - cups
+        - nfs-utils
+        - rpcbind
+      when: init_process.stdout != "systemd"
+  become: true
   tags:
     - services
     - hardening
+
 
 # ============================================================
 # 5. Log Audit Configuration
