@@ -51,7 +51,7 @@ jobs:
         run: |
           packer plugins install github.com/hashicorp/ansible
           packer plugins install github.com/hashicorp/docker
-          packer plugins list
+          packer plugins installed || true
 
       - name: 🏗️ Build hardened image for ${{ matrix.os_type }}
         run: |
