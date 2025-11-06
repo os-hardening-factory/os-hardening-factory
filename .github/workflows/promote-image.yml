@@ -1,4 +1,4 @@
-name: 🚀 Promote Hardened Image to Prod (with Security Gating + Release Publishing)
+name: 🚀 Promote Hardened Image to Prod (Security Gating + Release Publishing + Asset Upload)
 
 on:
   workflow_dispatch:
@@ -49,13 +49,14 @@ jobs:
           echo "CIS profile   : ${{ github.event.inputs.cis_profile }}"
           echo "Version       : ${{ github.event.inputs.version }}"
 
-      # ---------- Trivy Scan + Security Gating (same as before) ----------
+      # ---------- Step 1: Trivy installation ----------
       - name: 🔍 Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin
           trivy --version
 
+      # ---------- Step 2: Security Gating ----------
       - name: 🛡️ Security Gate (Trivy CVE check)
         env:
           VENDOR: ${{ github.event.inputs.vendor }}
@@ -69,17 +70,21 @@ jobs:
           IMG="${REPO}:${SOURCE_TAG}"
           aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REPO}
           docker pull "${IMG}"
+
           mkdir -p reports
           trivy image --timeout 5m --severity ${BLOCK_SEVERITIES} \
             --format json --output "reports/trivy-${VENDOR}-${SOURCE_TAG}.json" "${IMG}" || true
+
           CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-${VENDOR}-${SOURCE_TAG}.json)
           HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-${VENDOR}-${SOURCE_TAG}.json)
           echo "CRITICAL=${CRIT} HIGH=${HIGH}"
           if [ "${CRIT}" -gt 0 ] || [ "${HIGH}" -gt 0 ]; then
-            echo "❌ Blocked due to critical vulnerabilities"; exit 1; fi
+            echo "❌ Blocked due to critical vulnerabilities"
+            exit 1
+          fi
           echo "✅ Passed security gate"
 
-      # ---------- Promotion ----------
+      # ---------- Step 3: Promotion ----------
       - name: 🧱 Retag and push image (Prod)
         if: success()
         run: |
@@ -101,7 +106,7 @@ jobs:
           path: reports/
           retention-days: 30
 
-      # ---------- New Section: Release Notes & Vendor Repo Update ----------
+      # ---------- Step 4: Generate metadata for release ----------
       - name: 🧾 Generate release metadata and changelog entry
         id: metadata
         if: success()
@@ -109,12 +114,13 @@ jobs:
           DATE=$(date +%Y%m%d)
           COMMIT=$(git rev-parse --short HEAD || echo "manual")
           ECR_IMAGE="${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ github.event.inputs.vendor }}:${{ github.event.inputs.target_tag }}"
-          echo "ECR_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
+          SUMMARY="Image promoted to prod after passing security validation. CRITICAL/HIGH CVEs = 0."
           echo "DATE=${DATE}" >> $GITHUB_ENV
-          SUMMARY="Image promoted to prod after security validation. CRITICAL/HIGH CVEs = 0."
+          echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
+          echo "ECR_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
           echo "SUMMARY=${SUMMARY}" >> $GITHUB_ENV
-          echo "✅ Metadata prepared."
 
+      # ---------- Step 5: Dispatch release creation ----------
       - name: 🚀 Dispatch release to vendor repo
         if: success()
         env:
@@ -126,14 +132,30 @@ jobs:
             --version "${{ github.event.inputs.version }}" \
             --build_date "${{ env.DATE }}" \
             --summary "${{ env.SUMMARY }}"
-          echo "✅ Release published to vendor repo"
+          echo "✅ Release created in vendor repo"
 
-      - name: 🧾 Record promotion details
+      # ---------- Step 6: Attach Trivy report to GitHub release ----------
+      - name: 📎 Attach Trivy report to vendor release
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          VENDOR: ${{ github.event.inputs.vendor }}
+        run: |
+          RELEASE_TAG="${{ github.event.inputs.version }}-${{ github.event.inputs.cis_profile }}-${{ env.DATE }}"
+          FILE_PATH="reports/trivy-${VENDOR}-${{ github.event.inputs.source_tag }}.json"
+          REPO="os-hardening-${VENDOR}"
+
+          echo "🔗 Uploading ${FILE_PATH} to release ${RELEASE_TAG} in ${REPO}..."
+          gh release upload "${RELEASE_TAG}" "${FILE_PATH}" \
+            --repo "os-hardening-factory/${REPO}" --clobber
+          echo "✅ Attached Trivy report as release asset"
+
+      - name: 🧾 Final promotion summary
         if: success()
         run: |
           echo "Promotion Summary:"
           echo "  Vendor     : ${{ github.event.inputs.vendor }}"
-          echo "  Source Tag : ${{ github.event.inputs.source_tag }}"
           echo "  Target Tag : ${{ github.event.inputs.target_tag }}"
           echo "  ECR Image  : ${{ env.ECR_IMAGE }}"
-          echo "  Date       : ${{ env.DATE }}"
+          echo "  Release    : ${{ github.event.inputs.version }}-${{ github.event.inputs.cis_profile }}-${{ env.DATE }}"
+          echo "  Attached   : Trivy report asset"
