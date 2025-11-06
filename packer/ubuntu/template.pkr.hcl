@@ -11,7 +11,6 @@ packer {
   }
 }
 
-
 source "docker" "ubuntu" {
   image  = "ubuntu:latest"
   commit = true
@@ -20,7 +19,6 @@ source "docker" "ubuntu" {
 build {
   name    = "ubuntu-hardened"
   sources = ["source.docker.ubuntu"]
-  variables = ["packer/variables.pkr.hcl"]
 
   provisioner "ansible" {
     playbook_file = "./packer/ubuntu/ansible/playbook.yml"
@@ -28,12 +26,12 @@ build {
 
   post-processor "docker-tag" {
     repository = "661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-ubuntu"
-    tag        = "v1.0.0-cis1.4-20251106"
+    tags       = [var.local_tag]
   }
 }
 
-# Declare variables here
 variable "local_tag" {
   type        = string
   description = "Tag for the hardened image version"
+  default     = "latest"
 }

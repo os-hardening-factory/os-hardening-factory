@@ -11,16 +11,16 @@ packer {
   }
 }
 
-
+# --- Source configuration ---
 source "docker" "amazonlinux" {
   image  = "amazonlinux:latest"
   commit = true
 }
 
+# --- Build definition ---
 build {
   name    = "amazonlinux-hardened"
   sources = ["source.docker.amazonlinux"]
-  variables = ["packer/variables.pkr.hcl"]
 
   provisioner "ansible" {
     playbook_file = "./packer/amazonlinux/ansible/playbook.yml"
@@ -28,12 +28,13 @@ build {
 
   post-processor "docker-tag" {
     repository = "661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-amazonlinux"
-    tag        = "v1.0.0-cis1.4-20251106"
+    tags       = [var.local_tag]
   }
 }
 
-# Declare variables here
+# --- Variable declaration ---
 variable "local_tag" {
   type        = string
   description = "Tag for the hardened image version"
+  default     = "latest"
 }

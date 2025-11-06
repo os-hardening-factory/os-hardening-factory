@@ -8,6 +8,10 @@ on:
         required: true
         default: "all"
 
+concurrency:
+  group: "os-hardening-orchestrator"
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,7 +23,7 @@ jobs:
       contents: write
 
     steps:
-      - name: 🧩 Checkout orchestrator repo
+      - name: 🧾 Checkout orchestrator repo
         uses: actions/checkout@v4
 
       - name: 🔐 Configure AWS credentials via OIDC
@@ -30,42 +34,63 @@ jobs:
 
       - name: 🔧 Install dependencies
         run: |
+          echo "🔧 Installing dependencies..."
           sudo apt-get update -y
-          sudo apt-get install -y wget curl gpg python3-pip software-properties-common
+          sudo apt-get install -y wget curl unzip python3-pip software-properties-common gpg
           wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt-get update && sudo apt-get install -y packer
           pip3 install boto3 PyGithub
+          echo "✅ Dependencies installed."
 
-      - name: 🧩 Install required Packer plugins
+      - name: 🧩 Install required Packer plugins (with retries)
         run: |
           echo "📦 Installing required Packer plugins..."
-          packer plugins install github.com/hashicorp/docker
-          packer plugins install github.com/hashicorp/ansible
-          echo "✅ Installed Packer plugins:"
-          packer plugins installed
+          set -e
+          for plugin in "github.com/hashicorp/docker" "github.com/hashicorp/ansible"; do
+            echo "🧩 Installing plugin: $plugin"
+            for i in {1..3}; do
+              if packer plugins install $plugin; then
+                echo "✅ Installed $plugin successfully"
+                break
+              elif [ $i -eq 3 ]; then
+                echo "❌ Failed to install $plugin after 3 attempts"
+                exit 1
+              else
+                echo "⚠️ Retry $i/3 for $plugin after 10s..."
+                sleep 10
+              fi
+            done
+          done
+
+          echo "✅ Installed Packer plugins list:"
+          packer plugins installed || true
 
       - name: 🏗️ Build hardened image for ${{ matrix.os_type }}
         run: |
           echo "🚀 Building hardened image for ${{ matrix.os_type }}..."
-          TAG="${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}"
           packer init packer/${{ matrix.os_type }}
           packer validate packer/${{ matrix.os_type }}
-          packer build -var "local_tag=${TAG}" packer/${{ matrix.os_type }}
+          packer build \
+            -var "local_tag=${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}" \
+            packer/${{ matrix.os_type }}
 
-      - name: 🧪 Scan image using Trivy
+      - name: 🔍 Scan image using Trivy
         run: |
-          echo "🔍 Running CVE scan for ${{ matrix.os_type }}..."
+          echo "🔍 Scanning image for vulnerabilities..."
           trivy image 661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-${{ matrix.os_type }}:latest \
             -f json -o reports/trivy-${{ matrix.os_type }}.json || true
 
       - name: ☁️ Upload compliance report to S3
-        run: python3 tools/upload_to_s3_and_trigger_glue.py
+        run: |
+          echo "☁️ Uploading compliance report for ${{ matrix.os_type }} to S3..."
+          python3 tools/upload_to_s3_and_trigger_glue.py
         env:
           AWS_REGION: ap-south-1
 
-      - name: 🧾 Update vendor repo changelog + release
+      - name: 🪶 Update vendor repo changelog + release
         run: |
+          echo "🪶 Updating vendor changelog for ${{ matrix.os_type }}..."
           python3 tools/dispatch_to_vendor_repos.py \
             --vendor ${{ matrix.os_type }} \
             --cis_profile "cis1.4" \

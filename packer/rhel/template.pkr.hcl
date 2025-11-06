@@ -11,7 +11,6 @@ packer {
   }
 }
 
-
 source "docker" "rhel" {
   image  = "rhel:latest"
   commit = true
@@ -20,7 +19,6 @@ source "docker" "rhel" {
 build {
   name    = "rhel-hardened"
   sources = ["source.docker.rhel"]
-  variables = ["packer/variables.pkr.hcl"]
 
   provisioner "ansible" {
     playbook_file = "./packer/rhel/ansible/playbook.yml"
@@ -28,12 +26,12 @@ build {
 
   post-processor "docker-tag" {
     repository = "661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-rhel"
-    tag        = "v1.0.0-cis1.4-20251106"
+    tags       = [var.local_tag]
   }
 }
 
-# Declare variables here
 variable "local_tag" {
   type        = string
   description = "Tag for the hardened image version"
+  default     = "latest"
 }
