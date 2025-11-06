@@ -1,146 +1,36 @@
-name: 🏭 OS Hardening Orchestrator
+name: 🧩 OS Hardening Controller
 
 on:
   workflow_dispatch:
     inputs:
       vendor:
-        description: "Select OS vendor (amazonlinux, ubuntu, rhel, or all)"
+        description: "amazonlinux | ubuntu | rhel | all"
         required: true
         default: "all"
 
 concurrency:
-  group: "os-hardening-orchestrator"
+  group: "controller-${{ github.ref }}"
   cancel-in-progress: false
 
+# The reusable workflows do the heavy lifting; we keep this minimal.
+permissions:
+  contents: read
+
 jobs:
-  build:
+  build-all:
+    if: ${{ github.event.inputs.vendor == 'all' }}
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        os_type: ${{ fromJson(github.event.inputs.vendor == 'all' && '["amazonlinux","ubuntu","rhel"]' || format('["{0}"]', github.event.inputs.vendor)) }}
       fail-fast: false
-
-    permissions:
-      id-token: write
-      contents: write
-
+      matrix:
+        vendor: [ubuntu, amazonlinux, rhel]
     steps:
-      # ---------------------------------------------------------------------
-      # Step 1 - Checkout repository
-      # ---------------------------------------------------------------------
-      - name: 🧾 Checkout orchestrator repo
-        uses: actions/checkout@v4
+      - name: ▶️ Call vendor workflow - ${{ matrix.vendor }}
+        uses: ./.github/workflows/build-${{ matrix.vendor }}.yml
 
-      # ---------------------------------------------------------------------
-      # Step 2 - Configure AWS (OIDC)
-      # ---------------------------------------------------------------------
-      - name: 🔐 Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
-          aws-region: ap-south-1
-
-      # ---------------------------------------------------------------------
-      # Step 3 - Install Dependencies (Packer + Trivy + Python)
-      # ---------------------------------------------------------------------
-      - name: 🔧 Install dependencies
-        run: |
-          echo "🔧 Installing dependencies..."
-          sudo apt-get update -y
-          sudo apt-get install -y wget curl unzip python3-pip software-properties-common gpg
-
-          # Install HashiCorp Packer
-          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update && sudo apt-get install -y packer
-
-          # ✅ Install Trivy using Aqua Security's official cross-platform script
-          echo "📦 Installing Trivy..."
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy --version
-
-          # Python dependencies for helper scripts
-          pip3 install boto3 PyGithub
-          echo "✅ All dependencies installed."
-
-      # ---------------------------------------------------------------------
-      # Step 4 - Install required Packer plugins
-      # ---------------------------------------------------------------------
-      - name: 🧩 Install required Packer plugins
-        run: |
-          echo "📦 Installing required Packer plugins..."
-          for plugin in "github.com/hashicorp/docker" "github.com/hashicorp/ansible"; do
-            echo "🧩 Installing plugin: $plugin"
-            for i in {1..3}; do
-              if packer plugins install $plugin; then
-                echo "✅ Installed $plugin successfully"
-                break
-              elif [ $i -eq 3 ]; then
-                echo "❌ Failed to install $plugin after 3 attempts"
-                exit 1
-              else
-                echo "⚠️ Retry $i/3 for $plugin after 10s..."
-                sleep 10
-              fi
-            done
-          done
-          echo "✅ Installed Packer plugins list:"
-          packer plugins installed || true
-
-      # ---------------------------------------------------------------------
-      # Step 5 - Build hardened image
-      # ---------------------------------------------------------------------
-      - name: 🏗️ Build hardened image for ${{ matrix.os_type }}
-        run: |
-          echo "🚀 Building hardened image for ${{ matrix.os_type }}..."
-          export PACKER_LOG=1
-          packer init packer/${{ matrix.os_type }}
-          packer validate packer/${{ matrix.os_type }}
-          packer build \
-            -var "local_tag=${{ matrix.os_type }}-hardened:$(date +%Y%m%d)-${GITHUB_SHA::7}" \
-            packer/${{ matrix.os_type }}
-
-      # ---------------------------------------------------------------------
-      # Step 6 - Trivy CVE Scan
-      # ---------------------------------------------------------------------
-      - name: 🔍 Scan built image with Trivy
-        run: |
-          mkdir -p reports
-          IMAGE_NAME=${{ matrix.os_type }}-hardened:$(date +%Y%m%d)-${GITHUB_SHA::7}
-          echo "🔍 Running Trivy scan on $IMAGE_NAME ..."
-          trivy image $IMAGE_NAME -f json -o reports/trivy-${{ matrix.os_type }}.json || true
-          echo "✅ Trivy scan completed. Report saved to reports/trivy-${{ matrix.os_type }}.json"
-
-      # ---------------------------------------------------------------------
-      # Step 7 - Upload scan report artifact
-      # ---------------------------------------------------------------------
-      - name: 📤 Upload Trivy report as GitHub artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-${{ matrix.os_type }}-report
-          path: reports/trivy-${{ matrix.os_type }}.json
-
-      # ---------------------------------------------------------------------
-      # Step 8 - Upload compliance report to S3
-      # ---------------------------------------------------------------------
-      - name: ☁️ Upload compliance report to S3
-        run: |
-          echo "☁️ Uploading compliance report for ${{ matrix.os_type }} to S3..."
-          python3 tools/upload_to_s3_and_trigger_glue.py
-        env:
-          AWS_REGION: ap-south-1
-
-      # ---------------------------------------------------------------------
-      # Step 9 - Update vendor changelog & release
-      # ---------------------------------------------------------------------
-      - name: 🪶 Update vendor repo changelog + release
-        run: |
-          echo "🪶 Updating vendor changelog for ${{ matrix.os_type }}..."
-          python3 tools/dispatch_to_vendor_repos.py \
-            --vendor ${{ matrix.os_type }} \
-            --cis_profile "cis1.4" \
-            --version "v1.0.0" \
-            --build_date "$(date +%Y%m%d)" \
-            --summary "CIS 1.4 compliance, CVE patches, and OS security updates"
-        env:
-          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+  build-one:
+    if: ${{ github.event.inputs.vendor != 'all' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: ▶️ Call vendor workflow - ${{ github.event.inputs.vendor }}
+        uses: ./.github/workflows/build-${{ github.event.inputs.vendor }}.yml
