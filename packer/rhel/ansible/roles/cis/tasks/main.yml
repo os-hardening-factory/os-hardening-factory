@@ -128,19 +128,35 @@
 # 5. Log Audit Configuration
 # ============================================================
 
-- name: Ensure rsyslog is installed and running
-  ansible.builtin.package:
-    name: rsyslog
-    state: present
-  tags:
-    - logging
-    - audit
+- name: Ensure rsyslog is installed and configured correctly (container-safe)
+  block:
+    - name: Detect if running inside a container
+      ansible.builtin.command: cat /proc/1/comm
+      register: init_process
+      changed_when: false
+      failed_when: false
 
-- name: Ensure rsyslog service is enabled
-  ansible.builtin.systemd:
-    name: rsyslog
-    enabled: true
-    state: started
+    - name: Ensure rsyslog package is installed
+      ansible.builtin.dnf:
+        name: rsyslog
+        state: present
+      become: true
+
+    - name: Enable and start rsyslog service when systemd is available
+      ansible.builtin.systemd:
+        name: rsyslog
+        enabled: true
+        state: started
+      when: init_process.stdout == "systemd"
+      become: true
+
+    - name: Validate rsyslog configuration when systemd is not available
+      ansible.builtin.command: rsyslogd -N1
+      register: rsyslog_validation
+      changed_when: false
+      failed_when: rsyslog_validation.rc != 0
+      when: init_process.stdout != "systemd"
+      become: true
   tags:
     - logging
     - audit
