@@ -11,7 +11,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     strategy:
       matrix:
         os_type: ${{ fromJson(github.event.inputs.vendor == 'all' && '["amazonlinux","ubuntu","rhel"]' || format('["{0}"]', github.event.inputs.vendor)) }}
@@ -20,7 +19,7 @@ jobs:
       contents: write
 
     steps:
-      - name: 🧾 Checkout orchestrator repo
+      - name: 🧩 Checkout orchestrator repo
         uses: actions/checkout@v4
 
       - name: 🔐 Configure AWS credentials via OIDC
@@ -32,32 +31,46 @@ jobs:
       - name: 🔧 Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y wget curl gpg python3-pip software-properties-common --no-install-recommends
-          wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update -y
-          sudo apt-get install -y packer
+          sudo apt-get install -y wget curl gpg python3-pip software-properties-common
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update && sudo apt-get install -y packer
           pip3 install boto3 PyGithub
 
       - name: 🧩 Install required Packer plugins
-        shell: bash
-        timeout-minutes: 15
         run: |
           echo "📦 Installing required Packer plugins..."
-          set -e
-          packer plugins install github.com/hashicorp/ansible || true
-          packer plugins install github.com/hashicorp/docker || true
+          packer plugins install github.com/hashicorp/docker
+          packer plugins install github.com/hashicorp/ansible
           echo "✅ Installed Packer plugins:"
           packer plugins installed
-          echo "⏳ Sleeping briefly to stabilize environment..."
-          sleep 15
 
       - name: 🏗️ Build hardened image for ${{ matrix.os_type }}
-        timeout-minutes: 60
         run: |
           echo "🚀 Building hardened image for ${{ matrix.os_type }}..."
+          TAG="${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}"
           packer init packer/${{ matrix.os_type }}
-          packer validate -var-file=packer/variables.pkr.hcl packer/${{ matrix.os_type }}
-          packer build -var-file=packer/variables.pkr.hcl \
-                       -var "local_tag=${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}" \
-                       packer/${{ matrix.os_type }}
+          packer validate packer/${{ matrix.os_type }}
+          packer build -var "local_tag=${TAG}" packer/${{ matrix.os_type }}
+
+      - name: 🧪 Scan image using Trivy
+        run: |
+          echo "🔍 Running CVE scan for ${{ matrix.os_type }}..."
+          trivy image 661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-${{ matrix.os_type }}:latest \
+            -f json -o reports/trivy-${{ matrix.os_type }}.json || true
+
+      - name: ☁️ Upload compliance report to S3
+        run: python3 tools/upload_to_s3_and_trigger_glue.py
+        env:
+          AWS_REGION: ap-south-1
+
+      - name: 🧾 Update vendor repo changelog + release
+        run: |
+          python3 tools/dispatch_to_vendor_repos.py \
+            --vendor ${{ matrix.os_type }} \
+            --cis_profile "cis1.4" \
+            --version "v1.0.0" \
+            --build_date "$(date +%Y%m%d)" \
+            --summary "CIS 1.4 compliance, CVE patches, and OS security updates"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
