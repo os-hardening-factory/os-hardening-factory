@@ -11,45 +11,70 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         os_type: ${{ fromJson(github.event.inputs.vendor == 'all' && '["amazonlinux","ubuntu","rhel"]' || format('["{0}"]', github.event.inputs.vendor)) }}
+
     permissions:
       id-token: write
       contents: write
 
     steps:
-      - name: Checkout orchestrator repo
+      - name: 📦 Checkout orchestrator repo
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
+      - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ap-south-1
 
-      - name: Install dependencies
+      - name: 🧰 Install Packer, Ansible, and Trivy
         run: |
+          echo "🔧 Installing prerequisites..."
           sudo apt-get update -y
-          sudo apt-get install -y packer python3-pip
+          sudo apt-get install -y wget curl gpg lsb-release software-properties-common python3-pip
+
+          echo "🔐 Adding HashiCorp apt repo for Packer..."
+          wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -y
+          sudo apt-get install -y packer
+
+          echo "🧩 Installing Ansible..."
+          sudo apt-add-repository --yes --update ppa:ansible/ansible
+          sudo apt-get install -y ansible
+
+          echo "🔍 Installing Trivy vulnerability scanner..."
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
+          echo "✅ Verifying tool versions..."
+          packer version
+          ansible --version
+          trivy --version
+
+          echo "📦 Installing Python dependencies..."
           pip3 install boto3 PyGithub
 
-      - name: Initialize and build hardened image
+      - name: 🏗️ Initialize and build hardened image
         run: |
+          echo "🚀 Building hardened image for ${{ matrix.os_type }}..."
           packer init packer/${{ matrix.os_type }}
           packer build -var "local_tag=${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}" packer/${{ matrix.os_type }}
 
-      - name: Scan image using Trivy
+      - name: 🔎 Scan image using Trivy
         run: |
+          echo "🔍 Scanning hardened image for vulnerabilities..."
           trivy image 661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-${{ matrix.os_type }}:latest \
             -f json -o reports/trivy-${{ matrix.os_type }}.json || true
 
-      - name: Upload compliance report to S3
+      - name: ☁️ Upload compliance report to S3
         run: python3 tools/upload_to_s3_and_trigger_glue.py
         env:
           AWS_REGION: ap-south-1
 
-      - name: Update vendor repo changelog + release
+      - name: 🧾 Update vendor repo changelog and release
         run: |
           python3 tools/dispatch_to_vendor_repos.py \
             --vendor ${{ matrix.os_type }} \
