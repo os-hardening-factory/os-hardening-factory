@@ -12,7 +12,7 @@ packer {
 }
 
 variable "local_tag" {
-  type = string
+  type    = string
   default = "amazonlinux-hardened:latest"
 }
 

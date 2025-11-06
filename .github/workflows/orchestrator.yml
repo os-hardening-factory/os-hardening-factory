@@ -30,6 +30,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          echo "🔧 Installing dependencies..."
           sudo apt-get update -y
           sudo apt-get install -y wget curl gpg python3-pip software-properties-common
           wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
@@ -41,8 +42,8 @@ jobs:
         run: |
           echo "🚀 Building hardened image for ${{ matrix.os_type }}..."
           echo "📦 Installing required Packer plugins..."
-          packer plugins install github.com/hashicorp/packer-plugin-ansible
-          packer plugins install github.com/hashicorp/docker
+          packer plugins install ansible
+          packer plugins install docker
 
           echo "⚙️ Initializing Packer..."
           packer init packer/${{ matrix.os_type }}
