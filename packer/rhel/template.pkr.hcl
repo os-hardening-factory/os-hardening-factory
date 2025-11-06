@@ -3,11 +3,11 @@ packer {
 
   required_plugins {
     docker = {
-      version = ">= 1.1.2"
+      version = ">= 1.1.0"
       source  = "github.com/hashicorp/docker"
     }
     ansible = {
-      version = ">= 1.1.4"
+      version = ">= 1.1.0"
       source  = "github.com/hashicorp/ansible"
     }
   }
@@ -21,7 +21,8 @@ source "docker" "rhel" {
   commit = true
   changes = [
     "LABEL os-hardening=true",
-    "ENV LANG=en_US.UTF-8"
+    "ENV LANG=en_US.UTF-8",
+    "ENV ANSIBLE_HOST_KEY_CHECKING=False"
   ]
 }
 
