@@ -1,5 +1,23 @@
----
-- name: Restart SSH
-  service:
-    name: sshd
-    state: restarted
+- name: Restart SSH (container-safe)
+  block:
+    - name: Detect if running inside a container
+      ansible.builtin.command: cat /proc/1/comm
+      register: init_process
+      changed_when: false
+      failed_when: false
+
+    - name: Restart sshd using systemd if available
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted
+      when: init_process.stdout == "systemd"
+      become: true
+
+    - name: Restart sshd manually if systemd is not available
+      ansible.builtin.shell: |
+        if command -v sshd >/dev/null 2>&1; then
+          pkill -HUP sshd || true
+          sshd -t && sshd
+        fi
+      when: init_process.stdout != "systemd"
+      become: true
