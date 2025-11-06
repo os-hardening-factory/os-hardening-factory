@@ -8,14 +8,9 @@ on:
         required: true
         default: "all"
 
-concurrency:
-  group: hardening-orchestrator
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     strategy:
       matrix:
         os_type: ${{ fromJson(github.event.inputs.vendor == 'all' && '["amazonlinux","ubuntu","rhel"]' || format('["{0}"]', github.event.inputs.vendor)) }}
@@ -33,9 +28,6 @@ jobs:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ap-south-1
 
-      - name: 🔎 Verify AWS identity
-        run: aws sts get-caller-identity
-
       - name: 🔧 Install dependencies
         run: |
           sudo apt-get update -y
@@ -45,12 +37,15 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y packer
           pip3 install boto3 PyGithub
-          echo "✅ Dependencies installed."
 
       - name: 🧩 Install required Packer plugins
+        shell: bash
         run: |
+          echo "📦 Installing required Packer plugins..."
+          set -e
           packer plugins install github.com/hashicorp/ansible
           packer plugins install github.com/hashicorp/docker
+          echo "✅ Installed Packer plugins:"
           packer plugins installed || true
 
       - name: 🏗️ Build hardened image for ${{ matrix.os_type }}
@@ -61,25 +56,3 @@ jobs:
           packer build -var-file=packer/variables.pkr.hcl \
                        -var "local_tag=${{ matrix.os_type }}-hardened:v1.0.0-cis1.4-$(date +%Y%m%d)-${GITHUB_SHA::7}" \
                        packer/${{ matrix.os_type }}
-        timeout-minutes: 45
-
-      - name: 🔍 Scan image using Trivy
-        run: |
-          echo "🔎 Scanning image..."
-          trivy image 661539128717.dkr.ecr.ap-south-1.amazonaws.com/hardened-${{ matrix.os_type }}:latest -f json -o reports/trivy-${{ matrix.os_type }}.json || true
-
-      - name: ☁️ Upload compliance report to S3
-        run: python3 tools/upload_to_s3_and_trigger_glue.py
-        env:
-          AWS_REGION: ap-south-1
-
-      - name: 🏷️ Update vendor repo changelog and release
-        run: |
-          python3 tools/dispatch_to_vendor_repos.py \
-            --vendor ${{ matrix.os_type }} \
-            --cis_profile "cis1.4" \
-            --version "v1.0.0" \
-            --build_date "$(date +%Y%m%d)" \
-            --summary "CIS 1.4 compliance, CVE patches, and OS security updates"
-        env:
-          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
