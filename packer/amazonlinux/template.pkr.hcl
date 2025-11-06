@@ -67,7 +67,7 @@ build {
   provisioner "ansible-local" {
     playbook_file     = "ansible/playbook.yml"
     playbook_dir      = "ansible"
-    role_paths        = ["ansible/roles"]
+    role_paths        = ["ansible/roles/cis", "ansible/roles/common", "ansible/roles/cis_baseline"]
     staging_directory = "/tmp/ansible"
     extra_arguments   = ["--verbose"]
   }
