@@ -1,0 +1,69 @@
+---
+# 🧩 Minimal RHEL CIS Baseline
+
+- name: Ensure system is up-to-date
+  yum:
+    name: '*'
+    state: latest
+  register: update_status
+  ignore_errors: true
+
+- name: Display system update results
+  debug:
+    var: update_status
+
+- name: Ensure core security packages are installed
+  yum:
+    name:
+      - vim
+      - curl
+      - wget
+      - net-tools
+      - sudo
+      - firewalld
+      - audit
+      - rsyslog
+    state: present
+
+- name: Enable and start auditd
+  service:
+    name: auditd
+    state: started
+    enabled: true
+
+- name: Enable and start rsyslog
+  service:
+    name: rsyslog
+    state: started
+    enabled: true
+
+- name: Set system timezone to UTC
+  command: timedatectl set-timezone UTC
+
+- name: Disable root SSH login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    create: yes
+  notify: Restart SSH
+
+- name: Ensure password complexity policy is enforced
+  lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: '^#?minlen'
+    line: 'minlen = 12'
+    create: yes
+
+- name: Ensure firewall is active
+  service:
+    name: firewalld
+    state: started
+    enabled: true
+
+# Handlers
+handlers:
+  - name: Restart SSH
+    service:
+      name: sshd
+      state: restarted

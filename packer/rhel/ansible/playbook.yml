@@ -1,6 +1,6 @@
 ---
-- name: Apply basic CIS hardening
+- name: Apply RHEL CIS 1.5 baseline hardening
   hosts: all
   become: true
   roles:
-    - common
+    - cis
