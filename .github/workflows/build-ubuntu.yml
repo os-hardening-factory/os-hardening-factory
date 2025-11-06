@@ -17,106 +17,87 @@ jobs:
       AWS_REGION: "ap-south-1"
 
     steps:
-      # ---------------------------------------------------------------------
-      # Step 1: Checkout Repository
-      # ---------------------------------------------------------------------
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------------------
-      # Step 2: Configure AWS OIDC Authentication
-      # ---------------------------------------------------------------------
       - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # ---------------------------------------------------------------------
-      # Step 3: Install Dependencies (No Docker or containerd conflicts)
-      # ---------------------------------------------------------------------
-      - name: 🔧 Install dependencies (Packer, Trivy, Python)
+      - name: 🔧 Install dependencies (no containerd conflicts)
         run: |
           set -e
-          echo "🔧 Installing dependencies..."
+          echo "🔧 Installing safe dependencies..."
 
-          # Base tools
+          # Base tools only
           sudo apt-get update -y
-          sudo apt-get install -y wget curl unzip python3-pip gpg lsb-release software-properties-common
+          sudo apt-get install -y wget curl unzip python3-pip gpg lsb-release jq
 
-          # ✅ Packer from HashiCorp repo
-          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update -y && sudo apt-get install -y packer
+          # ✅ Install Packer via binary (no apt)
+          echo "📦 Installing Packer binary..."
+          PACKER_VERSION="1.14.2"
+          curl -fsSL https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip -o packer.zip
+          sudo unzip -o packer.zip -d /usr/local/bin/
+          rm -f packer.zip
+          packer version
 
-          # ✅ Use preinstalled Docker only (avoid containerd.io)
-          echo "🐋 Verifying Docker availability..."
-          docker --version || (echo "❌ Docker missing in runner" && exit 1)
-          docker info || (echo "❌ Docker daemon not responding" && exit 1)
+          # ✅ Use runner’s preinstalled Docker
+          echo "🐋 Verifying Docker environment..."
+          docker --version || (echo "❌ Docker not found" && exit 1)
+          docker info || (echo "❌ Docker daemon unavailable" && exit 1)
 
-          # ✅ Trivy binary install (bypass apt)
-          echo "📦 Installing Trivy from binary..."
+          # ✅ Trivy binary install (no apt or containerd)
+          echo "🔍 Installing Trivy binary..."
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
           sudo mv trivy /usr/local/bin/trivy
           trivy --version
 
-          # ✅ Python dependencies
+          # ✅ Python libs
           pip3 install boto3 PyGithub
 
-          echo "✅ All dependencies installed successfully. No containerd conflicts detected."
+          echo "✅ Dependencies installed safely."
 
-      # ---------------------------------------------------------------------
-      # Step 4: Initialize & Validate Packer
-      # ---------------------------------------------------------------------
       - name: 🧩 Initialize and validate Packer
         run: |
           packer init packer/ubuntu
           packer validate packer/ubuntu
 
-      # ---------------------------------------------------------------------
-      # Step 5: Build Hardened Ubuntu Image
-      # ---------------------------------------------------------------------
-      - name: 🏗️ Build hardened image for Ubuntu
+      - name: 🏗️ Build hardened Ubuntu image
         run: |
           TIMESTAMP=$(date +%Y%m%d)
           TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
 
-          echo "🚀 Building hardened image: $TAG"
+          echo "🚀 Building image: $TAG"
           packer build \
             -var "local_tag=latest" \
             -var "image_name=${TAG}" \
             -var "base_image=ubuntu:22.04" \
             packer/ubuntu
 
-      # ---------------------------------------------------------------------
-      # Step 6: Security Scan via Trivy
-      # ---------------------------------------------------------------------
-      - name: 🔍 Scan hardened image using Trivy
+      - name: 🔍 Scan image using Trivy
         run: |
-          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)"
-          echo "🔍 Scanning hardened image: $TAG"
-          mkdir -p reports
-          trivy image "${TAG}:latest" --format json -o "reports/trivy-${TAG}.json" || true
+          TIMESTAMP=$(date +%Y%m%d)
+          TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-${TIMESTAMP}"
 
-      # ---------------------------------------------------------------------
-      # Step 7: Upload Compliance Report to S3
-      # ---------------------------------------------------------------------
+          echo "🔍 Scanning image: ${TAG}:latest"
+          mkdir -p reports
+          trivy image "${TAG}:latest" --format json -o reports/trivy-${TAG}.json || true
+
       - name: ☁️ Upload compliance report to S3
         run: |
           python3 tools/upload_to_s3_and_trigger_glue.py
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
 
-      # ---------------------------------------------------------------------
-      # Step 8: Update Vendor Changelog
-      # ---------------------------------------------------------------------
-      - name: 🪶 Update vendor changelog + release info
+      - name: 🪶 Update vendor changelog
         run: |
           python3 tools/dispatch_to_vendor_repos.py \
             --vendor "${{ env.OS_NAME }}" \
             --cis_profile "cis${{ env.CIS_VERSION }}" \
             --version "v1.0.0" \
             --build_date "$(date +%Y%m%d)" \
-            --summary "CIS ${{ env.CIS_VERSION }} compliance + security updates applied"
+            --summary "CIS ${{ env.CIS_VERSION }} compliance and OS security patches"
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
