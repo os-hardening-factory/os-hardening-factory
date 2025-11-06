@@ -1,90 +1,67 @@
-# ---------------------------------------------------------------------------
-# 📦 Packer Template for RHEL CIS Hardening
-# ---------------------------------------------------------------------------
-# Builds a Docker-based hardened RHEL image according to CIS benchmark.
-# This configuration uses HashiCorp Packer with Docker + Ansible provisioners.
-# ---------------------------------------------------------------------------
-
 packer {
-  required_version = ">= 1.11.0"
-
   required_plugins {
     docker = {
-      version = ">= 1.1.2"
       source  = "github.com/hashicorp/docker"
+      version = ">= 1.1.2"
     }
     ansible = {
-      version = ">= 1.1.4"
       source  = "github.com/hashicorp/ansible"
+      version = ">= 1.1.4"
     }
   }
 }
 
 # ---------------------------------------------------------------------------
-# 🧩 Variable Definitions
-# ---------------------------------------------------------------------------
-variable "base_image" {
-  type        = string
-  description = "Base image for building the hardened container"
-  default     = "redhat/ubi9:latest"
-}
-
-variable "image_name" {
-  type        = string
-  description = "Final hardened image name and tag"
-}
-
-# ---------------------------------------------------------------------------
-# 🧱 Docker Source Definition
+# Docker source definition
 # ---------------------------------------------------------------------------
 source "docker" "rhel" {
   image  = var.base_image
   commit = true
-
   changes = [
-    "LABEL vendor='rhel'",
-    "LABEL os-hardening='true'",
+    "LABEL os-hardening=true",
     "ENV ANSIBLE_HOST_KEY_CHECKING=False",
-    "ENV DEBIAN_FRONTEND=noninteractive"
+    "ENV PACKER_BUILD_OS=rhel"
   ]
 }
 
 # ---------------------------------------------------------------------------
-# 🏗️ Build Definition
+# Build definition
 # ---------------------------------------------------------------------------
 build {
   name    = var.image_name
   sources = ["source.docker.rhel"]
 
   # -------------------------------------------------------------------------
-  # Step 1: Prepare environment inside container (install dependencies)
+  # Step 1: Install Python and Ansible inside the container
   # -------------------------------------------------------------------------
   provisioner "shell" {
     inline = [
-      "echo '🔧 Preparing RHEL environment...'",
-      "yum -y update || true",
-      "yum -y install python3 python3-pip git curl sudo ansible || true",
-      "pip3 install --upgrade pip",
-      "ansible --version || echo '✅ Ansible installed successfully'",
-      "yum clean all && rm -rf /var/cache/yum"
+      "microdnf install -y python3 git sudo tar",
+      "pip3 install ansible",
+      "ansible --version || echo '✅ Ansible installed successfully'"
     ]
   }
 
   # -------------------------------------------------------------------------
-  # Step 2: Apply CIS hardening using Ansible playbook
+  # Step 2: Copy Ansible playbook and roles into container
+  # -------------------------------------------------------------------------
+  provisioner "file" {
+    source      = "${path.root}/ansible"
+    destination = "/tmp/ansible"
+  }
+
+  # -------------------------------------------------------------------------
+  # Step 3: Run CIS hardening playbook
   # -------------------------------------------------------------------------
   provisioner "ansible-local" {
-    playbook_file = "${path.root}/ansible/playbook.yml"
-    playbook_dir  = "${path.root}/ansible"
-    role_paths    = ["${path.root}/ansible/roles"]
-
-    extra_arguments = [
-      "-e", "ANSIBLE_HOST_KEY_CHECKING=False"
-    ]
+    playbook_file = "packer/rhel/ansible/playbook.yml"
+    playbook_dir  = "packer/rhel/ansible"
+    role_paths    = ["packer/rhel/ansible/roles"]
+    extra_arguments = ["-e", "ANSIBLE_HOST_KEY_CHECKING=False"]
   }
 
   # -------------------------------------------------------------------------
-  # Step 3: Tag the final image
+  # Step 4: Tag final image
   # -------------------------------------------------------------------------
   post-processor "docker-tag" {
     repository = var.image_name

@@ -1,17 +1,17 @@
-# ---------------------------------------------------------------------------
-# 🧩 Variables for RHEL CIS Hardening
-# ---------------------------------------------------------------------------
-
-# CIS Benchmark version used for compliance
-variable "cis_version" {
+variable "base_image" {
   type        = string
-  description = "CIS benchmark version for this hardening build"
-  default     = "1.5"
+  description = "Base RHEL or UBI image to harden"
+  default     = "registry.access.redhat.com/ubi9/ubi:latest"
 }
 
-# Simple timestamp using shell injection from workflow
+variable "image_name" {
+  type        = string
+  description = "Final hardened image name"
+  default     = "rhel-9-cis1.5-hardening-test"
+}
+
 variable "timestamp" {
   type        = string
-  description = "Timestamp for image tagging (passed from workflow)"
+  description = "Build timestamp injected from workflow"
   default     = "20251106"
 }
