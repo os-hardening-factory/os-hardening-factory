@@ -4,4 +4,6 @@
   become: true
   gather_facts: yes
   roles:
+    - common
+    - cis_baseline
     - cis
