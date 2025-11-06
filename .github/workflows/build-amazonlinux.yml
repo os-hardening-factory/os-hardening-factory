@@ -18,15 +18,24 @@ jobs:
       PACKER_VERSION: "1.11.2"
 
     steps:
+      # -----------------------------------------------------------
+      # 🧾 Checkout source code
+      # -----------------------------------------------------------
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
+      # -----------------------------------------------------------
+      # 🔐 Configure AWS credentials via OIDC (for AMI builds or S3 upload)
+      # -----------------------------------------------------------
       - name: 🔐 Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::661539128717:role/GitHubActionsFactoryRole
           aws-region: ${{ env.AWS_REGION }}
 
+      # -----------------------------------------------------------
+      # 📦 Install Packer
+      # -----------------------------------------------------------
       - name: 📦 Install Packer (binary)
         run: |
           curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o packer.zip
@@ -34,17 +43,51 @@ jobs:
           rm -f packer.zip
           packer version
 
-      - name: 🧩 Initialize and validate Packer template
+      # -----------------------------------------------------------
+      # 🧰 Verify build structure for debugging
+      # -----------------------------------------------------------
+      - name: 🧰 Verify Packer and Ansible directories
         run: |
-          packer init packer/amazonlinux
-          packer validate -var "image_name=${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)" packer/amazonlinux
+          echo "Current workspace: $(pwd)"
+          ls -R packer/amazonlinux || echo "❌ packer/amazonlinux missing"
+          ls -R packer/amazonlinux/ansible || echo "❌ ansible folder missing"
 
+      # -----------------------------------------------------------
+      # 🧩 Initialize and validate Packer template
+      # (Use working-directory to fix relative path issue)
+      # -----------------------------------------------------------
+      - name: 🧩 Initialize and validate Packer template
+        working-directory: packer/amazonlinux
+        run: |
+          packer init .
+          packer validate -var "image_name=${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)" .
+
+      # -----------------------------------------------------------
+      # 🏗️ Build CIS-hardened Docker image
+      # -----------------------------------------------------------
       - name: 🏗️ Build Amazon Linux CIS image
+        working-directory: packer/amazonlinux
         run: |
           TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}-hardening-$(date +%Y%m%d)"
-          packer build -var "image_name=${TAG}" packer/amazonlinux
+          echo "Building image: ${TAG}"
+          packer build -var "image_name=${TAG}" .
 
-      - name: 🔍 Trivy Scan
+      # -----------------------------------------------------------
+      # 🔍 Security Scan using Trivy (container-level CVE scan)
+      # -----------------------------------------------------------
+      - name: 🔍 Trivy Image Scan
         run: |
+          echo "Scanning hardened image with Trivy..."
           mkdir -p reports
+          docker images
           trivy image "${{ env.OS_NAME }}-${{ env.OS_VERSION }}:latest" -f json -o reports/trivy-${{ env.OS_NAME }}.json || true
+
+      # -----------------------------------------------------------
+      # 📤 Upload Trivy report as an artifact
+      # -----------------------------------------------------------
+      - name: 📤 Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: reports/trivy-${{ env.OS_NAME }}.json
+          if-no-files-found: warn
