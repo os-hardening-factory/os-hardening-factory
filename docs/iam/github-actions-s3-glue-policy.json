@@ -1,0 +1,39 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowS3PutAndList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cloud-secure-infra-dev-image-metadata",
+        "arn:aws:s3:::cloud-secure-infra-dev-image-metadata/*"
+      ]
+    },
+    {
+      "Sid": "AllowGlueCrawlerRun",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetCrawler",
+        "glue:StartCrawler",
+        "glue:GetCrawlerMetrics"
+      ],
+      "Resource": [
+        "arn:aws:glue:ap-south-1:661539128717:crawler/cloud-secure-infra-dev-compliance-crawler"
+      ]
+    },
+    {
+      "Sid": "AllowCloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
