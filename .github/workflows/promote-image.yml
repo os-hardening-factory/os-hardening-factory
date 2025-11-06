@@ -2,6 +2,7 @@ name: 🚀 Promote Hardened Image to Prod (Security Gating + Release Publishing 
 
 on:
   workflow_dispatch:
+    types: [manual]
     inputs:
       vendor:
         description: "OS vendor (e.g., ubuntu, rhel, amazonlinux)"
@@ -181,8 +182,8 @@ jobs:
           echo "  ECR Image  : ${{ env.ECR_IMAGE }}"
           echo "  Release    : ${{ github.event.inputs.version }}-${{ github.event.inputs.cis_profile }}-${{ env.DATE }}"
           echo "  Attached   : Trivy report asset"
-      
-            - name: 🧾 Generate final audit summary
+
+      - name: 🧾 Generate final audit summary
         if: always()
         run: |
           echo "✅ Hardened Image Promotion Summary" > summary.md
@@ -198,7 +199,6 @@ jobs:
           echo "📅 Date:          $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> summary.md
           echo "" >> summary.md
           echo "✅ Promotion job completed successfully and release published to vendor repo." >> summary.md
-
           cat summary.md
 
       - name: 📤 Upload audit summary
@@ -208,5 +208,6 @@ jobs:
           name: audit-summary-${{ github.event.inputs.vendor }}
           path: summary.md
           retention-days: 30
+
 
 
