@@ -73,6 +73,23 @@ jobs:
           echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
           echo "BASE_TAG=${BASE_TAG}" >> $GITHUB_ENV
 
+      # 7️⃣ Run Lynis CIS Compliance Scan (Ubuntu)
+      - name: 🧪 Run Lynis CIS compliance scan
+        run: |
+          echo "🧩 Running Lynis CIS compliance scan on hardened image..."
+          mkdir -p reports
+          docker run --rm \
+            -v $(pwd)/reports:/report \
+            --name lynis-scan \
+            ubuntu:${{ env.OS_VERSION }} bash -c "\
+              apt-get update -qq && \
+              apt-get install -y lynis > /dev/null 2>&1 && \
+              lynis audit system --quiet --no-colors | tee /report/lynis-${{ env.OS_NAME }}.txt"
+          
+          echo "✅ Lynis compliance report generated: reports/lynis-${{ env.OS_NAME }}.txt"
+          ls -lh reports/
+
+
       # 7️⃣ Push hardened image to ECR (immutable)
       - name: 🧱 Tag and push hardened image to ECR
         run: |
