@@ -89,6 +89,30 @@ jobs:
           echo "✅ Lynis compliance report generated: reports/lynis-${{ env.OS_NAME }}.txt"
           ls -lh reports/
 
+      # 8️⃣ Run Trivy Vulnerability Scan (Ubuntu)
+      - name: 🔍 Run Trivy CVE scan
+        run: |
+          echo "🧩 Starting Trivy vulnerability scan on hardened image..."
+          mkdir -p reports
+
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+          # Determine the latest built image tag
+          DATE=$(date +%Y%m%d)
+          BASE_TAG="${{ env.OS_NAME }}-${{ env.OS_VERSION }}-cis${{ env.CIS_VERSION }}"
+          IMAGE_NAME="${BASE_TAG}-hardening-${DATE}"
+
+          # Run the scan and save JSON output
+          trivy image --timeout 10m --severity HIGH,CRITICAL \
+            --format json \
+            --output reports/trivy-${{ env.OS_NAME }}.json \
+            "${IMAGE_NAME}:latest" || true
+
+          echo "✅ Trivy CVE report saved to reports/trivy-${{ env.OS_NAME }}.json"
+          ls -lh reports/
+
+
 
       # 7️⃣ Push hardened image to ECR (immutable)
       - name: 🧱 Tag and push hardened image to ECR
