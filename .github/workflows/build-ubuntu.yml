@@ -123,6 +123,19 @@ jobs:
           echo "ENTERPRISE_TAG=${ENTERPRISE_TAG}" >> $GITHUB_ENV
           echo "🚀 New enterprise tag: ${ENTERPRISE_TAG}"
 
+      - name: 🧱 Prepare reports directory
+        run: |
+          mkdir -p reports
+          echo "✅ reports/ folder created at $(pwd)/reports"
+
+      - name: 🧪 Create dummy compliance report (debug)
+        run: |
+          echo '{"os":"ubuntu","status":"upload test","timestamp":"'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"}' > reports/test-report.json
+          echo "✅ Created test report file:"
+          ls -l reports/
+
+
+
       # 9️⃣ Upload compliance reports to S3 and trigger AWS Glue crawler
       - name: ☁️ Upload reports to S3 and trigger Glue
         env:
