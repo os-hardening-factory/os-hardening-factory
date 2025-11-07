@@ -112,6 +112,36 @@ jobs:
           echo "✅ Trivy CVE report saved to reports/trivy-${{ env.OS_NAME }}.json"
           ls -lh reports/
 
+      # 9️⃣ Generate Unified Compliance Summary JSON
+      - name: 📊 Generate compliance summary JSON
+        run: |
+          echo "🧩 Generating unified compliance summary report..."
+          mkdir -p reports
+
+          # Extract Lynis hardening index
+          CIS_SCORE=$(grep -i "Hardening index" reports/lynis-${{ env.OS_NAME }}.txt | awk '{print $3}' || echo "N/A")
+
+          # Extract Trivy CVE counts
+          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-${{ env.OS_NAME }}.json)
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-${{ env.OS_NAME }}.json)
+
+          # Build unified JSON
+          cat <<EOF > reports/compliance-summary.json
+          {
+            "os": "${{ env.OS_NAME }}",
+            "version": "${{ env.OS_VERSION }}",
+            "cis_version": "${{ env.CIS_VERSION }}",
+            "cis_score": "$CIS_SCORE",
+            "critical_cves": $CRITICAL,
+            "high_cves": $HIGH,
+            "build_date": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "status": "$(if [ "$CRITICAL" -eq 0 ] && [ "$HIGH" -eq 0 ]; then echo "COMPLIANT"; else echo "NON_COMPLIANT"; fi)"
+          }
+          EOF
+
+          echo "✅ Compliance summary generated:"
+          cat reports/compliance-summary.json
+
 
 
       # 7️⃣ Push hardened image to ECR (immutable)
