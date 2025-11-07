@@ -123,3 +123,20 @@ jobs:
           docker tag  "$SRC" "$DEST"
           docker push "$DEST"
           echo "✅ Pushed enterprise tag: ${DEST}"
+
+      # 🔟 Upload compliance reports to S3 and trigger AWS Glue crawler
+      - name: ☁️ Upload reports to S3 and trigger Glue
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          echo "☁️ Uploading reports for ${{ env.OS_NAME }} to S3 and triggering Glue crawler..."
+
+          # make sure Python deps exist
+          pip3 install boto3
+
+          # call your existing script
+          python3 tools/upload_to_s3_and_trigger_glue.py \
+            --bucket os-compliance-reports \
+            --region ${{ env.AWS_REGION }} \
+            --os ${{ env.OS_NAME }} \
+            --build_date $(date +%Y%m%d)
