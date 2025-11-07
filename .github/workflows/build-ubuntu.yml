@@ -5,6 +5,7 @@ on:
 
 jobs:
   build-ubuntu:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -64,27 +65,22 @@ jobs:
             -var "base_image=ubuntu:${{ env.OS_VERSION }}" \
             -var "cis_profile=cis${{ env.CIS_VERSION }}" \
             -var "build_date=${DATE}" \
-            -var "build_time=${TIME}" \
             -var "git_commit=${COMMIT}" \
-            -var "enterprise_tag=${{ env.ENTERPRISE_TAG }}" \
             -var "source_ami=${SOURCE_AMI}" \
-            -var "description=${{ env.ENTERPRISE_TAG }} built using source AMI ${SOURCE_AMI}" \
             packer/ubuntu
 
           echo "DATE=${DATE}" >> $GITHUB_ENV
           echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
           echo "BASE_TAG=${BASE_TAG}" >> $GITHUB_ENV
 
-      - name: 🧱 Tag and push hardened image to ECR (immutable with datetime)
+      # 7️⃣ Push hardened image to ECR (immutable)
+      - name: 🧱 Tag and push hardened image to ECR
         run: |
-          # Generate timestamped version tag
           DATE=$(date +%Y%m%d)
           TIME=$(date +%H%M%S)
           COMMIT=${{ env.COMMIT }}
           BASE_TAG=${{ env.BASE_TAG }}
           FULL_TAG="${BASE_TAG}-${DATE}${TIME}-${COMMIT}"
-
-          echo "🔹 Generated immutable tag: ${FULL_TAG}"
 
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
             | docker login --username AWS \
@@ -92,53 +88,31 @@ jobs:
 
           docker tag ${BASE_TAG}-hardening-${DATE}:latest \
             ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
-
           docker push ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/hardened-${{ env.OS_NAME }}:${FULL_TAG}
 
           echo "FULL_TAG=${FULL_TAG}" >> $GITHUB_ENV
-          echo "✅ Image pushed successfully with timestamped immutable tag"
+          echo "✅ Image pushed with immutable tag: ${FULL_TAG}"
 
-
-      # 8️⃣ Generate enterprise tag (vendor-version-intuit-iteration)
-      - name: 🏷️ Generate enterprise tag
-        id: taggen
-        run: |
-          VENDOR="${{ env.OS_NAME }}"
-          VERSION="${{ env.OS_VERSION }}"
-          VARIANT="intuit"
-          ITERATION="1"
-          ENTERPRISE_TAG="${VENDOR}-${VERSION}-${VARIANT}-${ITERATION}"
-          echo "ENTERPRISE_TAG=${ENTERPRISE_TAG}" >> $GITHUB_ENV
-          echo "Enterprise tag generated: ${ENTERPRISE_TAG}"
-
-
+      # 8️⃣ Generate semantic enterprise tag (1.x style)
       - name: 🏷️ Generate enterprise tag (semantic 1.x versioning)
-        id: taggen
+        id: semver
         run: |
           VENDOR="${{ env.OS_NAME }}"
           VERSION="${{ env.OS_VERSION }}"
           VARIANT="intuit"
 
-          echo "🔍 Fetching existing tags for hardened-${VENDOR}..."
           EXISTING_TAGS=$(aws ecr list-images \
             --repository-name hardened-${VENDOR} \
             --region ${{ env.AWS_REGION }} \
             --query "imageIds[?starts_with(imageTag, \`${VENDOR}-${VERSION}-${VARIANT}\`)].imageTag" \
             --output text)
 
-          echo "🧾 Existing tags: $EXISTING_TAGS"
-
-          # Default to 1.0 if no tags exist
           BASE_VERSION="1.0"
           if [ -z "$EXISTING_TAGS" ]; then
             NEW_VERSION=$BASE_VERSION
           else
-            # Extract numeric parts from tags like ubuntu-22.04-intuit-1.3
             LAST_TAG=$(echo "$EXISTING_TAGS" | tr '\t' '\n' | sort -V | tail -n 1)
             LAST_VERSION=$(echo "$LAST_TAG" | awk -F '-' '{print $NF}')
-            echo "🔢 Last semantic version found: $LAST_VERSION"
-
-            # Increment the minor version by 0.1
             MAJOR=$(echo "$LAST_VERSION" | cut -d. -f1)
             MINOR=$(echo "$LAST_VERSION" | cut -d. -f2)
             NEXT_MINOR=$((MINOR + 1))
@@ -146,24 +120,17 @@ jobs:
           fi
 
           ENTERPRISE_TAG="${VENDOR}-${VERSION}-${VARIANT}-${NEW_VERSION}"
-
-          echo "🚀 New enterprise tag: ${ENTERPRISE_TAG}"
           echo "ENTERPRISE_TAG=${ENTERPRISE_TAG}" >> $GITHUB_ENV
+          echo "🚀 New enterprise tag: ${ENTERPRISE_TAG}"
 
-
-      # 🔟 Upload compliance reports to S3 and trigger AWS Glue crawler
+      # 9️⃣ Upload compliance reports to S3 and trigger AWS Glue crawler
       - name: ☁️ Upload reports to S3 and trigger Glue
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
         run: |
-          echo "☁️ Uploading reports for ${{ env.OS_NAME }} to S3 and triggering Glue crawler..."
-
-          # make sure Python deps exist
           pip3 install boto3
-
-          # call your existing script
           python3 tools/upload_to_s3_and_trigger_glue.py \
-            --bucket os-compliance-reports \
+            --bucket cloud-secure-infra-dev-image-metadata-ap-south-1 \
             --region ${{ env.AWS_REGION }} \
             --os ${{ env.OS_NAME }} \
             --build_date $(date +%Y%m%d)
