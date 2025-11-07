@@ -142,6 +142,12 @@ jobs:
           echo "✅ Compliance summary generated:"
           cat reports/compliance-summary.json
 
+      # 🔧 Automated Remediation if Checks Fail
+      - name: 🛠️ Run automated remediation (if non-compliant)
+        run: |
+          pip3 install ansible boto3
+          python3 tools/remediate.py
+
 
 
       # 7️⃣ Push hardened image to ECR (immutable)
